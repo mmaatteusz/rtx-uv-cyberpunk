@@ -46,15 +46,8 @@ func verifyOriginalMSISlot(msi MSIBackup, base Snapshot, slot int) error {
 	if err != nil {
 		return err
 	}
-	source, start := sections[msiSlotKey(slot)], sections["startup"]
-	if err = compareMSISettings(start, source, base); err != nil {
-		return err
-	}
-	if err = verifyMSICurve(source.fields["vfcurve"], base.Points); err != nil {
-		return err
-	}
-	if start.fields["vfcurve"] != "" {
-		return verifyMSICurve(start.fields["vfcurve"], base.Points)
+	if err = verifyMSIOriginalProfile(sections["startup"], sections[msiSlotKey(slot)], base); err != nil {
+		return fmt.Errorf("slot MSI %d: %w", slot, err)
 	}
 	return nil
 }

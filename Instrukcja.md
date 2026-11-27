@@ -61,6 +61,8 @@ Aplikacja porównuje limit mocy zapisany w wybranym slocie MSI z bieżącym limi
 
 Różnica w zapisanym `FanSpeed` jest dopuszczalna, jeśli zarówno slot, jak i sekcja `Startup` mają jednoznacznie zapisany tryb Auto dla tego wentylatora. Różnica trybu, ręcznej nastawy lub nierozpoznanego trybu nadal przerywa sesję. Sama weryfikacja nie zapisuje nastaw wentylatora ani sekcji `Startup`.
 
+Jeżeli `CoreClkBoost` w wybranym slocie różni się od `Startup`, aplikacja porównuje wartość ze slotu z odczytem offsetu rdzenia P0 z NVAPI. Przykładowo puste pole w `Startup` jest dopuszczalne przy `165000` kHz w slocie i takim samym offsecie aktywnej karty. Przy różnicy lub braku odczytu program zatrzymuje się. Krzywa V/F jest sprawdzana względem wybranego slotu. Po jego próbnym wczytaniu aplikacja nadal wymaga zgodnego odczytu wszystkich offsetów krzywej i chronionych parametrów przed pierwszą eksperymentalną zmianą.
+
 ## Granice zmian w GPU
 
 Aplikacja zmienia wyłącznie wybrane offsety częstotliwości rdzenia na istniejących punktach V/F przez sterownik NVIDIA. Wyższe taktowanie przy niższym napięciu może odpowiadać częstotliwości, którą fabryczna siatka z oryginalną krzywą OC Scanner udostępniała już przy wyższym napięciu. Siatka napięć, VBIOS, firmware, zabezpieczenia GPU i fabryczne limity pozostają nietknięte. Aplikacja odczytuje zdarzenia TDR z dziennika Windows. Parametry `TdrDelay` i `TdrLevel` pozostają takie jak przed uruchomieniem.

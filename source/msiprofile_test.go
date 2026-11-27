@@ -52,6 +52,40 @@ func TestMSIRejectsMismatchedSlotAndCurve(t *testing.T) {
 	}
 }
 
+func TestMSISlotUsesActiveCoreBoostInsteadOfStartup(t *testing.T) {
+	base, raw := fixtureMSI()
+	sections, err := msiINI(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, slot := sections["startup"], sections["profile1"]
+	slot.fields["coreclkboost"] = "165000"
+	start.fields["vfcurve"] = "inny zapis dla startu"
+	base.GraphicsDeltas = map[uint32]int{0: 165000}
+	if err = verifyMSIOriginalProfile(start, slot, base); err != nil {
+		t.Fatalf("zgodny slot z pustym CoreClkBoost w Startup: %v", err)
+	}
+	base.GraphicsDeltas[0] = 0
+	if err = verifyMSIOriginalProfile(start, slot, base); err == nil || !strings.Contains(err.Error(), "P0 (0 kHz") {
+		t.Fatalf("nie zgłoszono rozbieżności rzeczywistego offsetu: %v", err)
+	}
+	delete(base.GraphicsDeltas, 0)
+	if err = verifyMSIOriginalProfile(start, slot, base); err == nil {
+		t.Fatal("zaakceptowano rozbieżność bez odczytu offsetu")
+	}
+	base.GraphicsDeltas[0] = 165000
+	savedCurve := slot.fields["vfcurve"]
+	delete(slot.fields, "vfcurve")
+	if err = verifyMSIOriginalProfile(start, slot, base); err == nil {
+		t.Fatal("zaakceptowano slot bez kompletnej krzywej")
+	}
+	slot.fields["vfcurve"] = savedCurve
+	slot.fields["thermallimit"] = "85"
+	if err = verifyMSIOriginalProfile(start, slot, base); err == nil || !strings.Contains(err.Error(), "thermallimit") {
+		t.Fatalf("pominięto różnicę w chronionym limicie: %v", err)
+	}
+}
+
 func TestMSIPowerLimitUsesSelectedSlotAndLiveGPU(t *testing.T) {
 	base, raw := fixtureMSI()
 	sections, err := msiINI(raw)

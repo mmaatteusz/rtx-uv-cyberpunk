@@ -140,11 +140,11 @@ func compareMSISettings(start, slot *msiSection, base Snapshot) error {
 	if start == nil || slot == nil {
 		return errors.New("brak zapisanej sekcji Startup lub oryginalnego slotu MSI")
 	}
-	// Startup is an on-disk profile, so its power limit can differ from the
-	// value currently applied. Validate the selected slot against NVML below.
+	// Validate the selected slot's power limit and any different core boost
+	// against the driver. Other protected settings still need matching values.
 	compareStoredField := func(field string) bool {
 		switch field {
-		case "vfcurve", "powerlimit":
+		case "vfcurve", "powerlimit", "coreclkboost":
 			return false
 		case "fanspeed":
 			return start.fields["fanmode"] != "0" || slot.fields["fanmode"] != "0"
@@ -162,6 +162,16 @@ func compareMSISettings(start, slot *msiSection, base Snapshot) error {
 	for field, value := range start.fields {
 		if compareStoredField(field) && slot.fields[field] != value {
 			return fmt.Errorf("wartość %s różni się między slotem MSI (%q) a sekcją Startup (%q)", field, slot.fields[field], value)
+		}
+	}
+	if saved := slot.fields["coreclkboost"]; saved != start.fields["coreclkboost"] {
+		boost, parseErr := strconv.Atoi(saved)
+		live, known := base.GraphicsDeltas[0]
+		if !known {
+			return errors.New("CoreClkBoost slotu różni się od Startup i brakuje odczytu offsetu rdzenia P0 z NVAPI")
+		}
+		if parseErr != nil || boost != live {
+			return fmt.Errorf("CoreClkBoost wybranego slotu (%q kHz) nie potwierdza aktywnego offsetu rdzenia P0 (%d kHz z NVAPI)", saved, live)
 		}
 	}
 	memory, err := strconv.Atoi(slot.fields["memclkboost"])
@@ -188,6 +198,13 @@ func compareMSISettings(start, slot *msiSection, base Snapshot) error {
 			power, slotPowerMW/1000, float64(base.PowerMW)/1000)
 	}
 	return nil
+}
+
+func verifyMSIOriginalProfile(start, slot *msiSection, base Snapshot) error {
+	if err := compareMSISettings(start, slot, base); err != nil {
+		return err
+	}
+	return verifyMSICurve(slot.fields["vfcurve"], base.Points)
 }
 
 func equalPointIDs(a, b []Point) bool {
