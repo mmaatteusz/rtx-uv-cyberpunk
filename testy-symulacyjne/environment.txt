@@ -1,0 +1,260 @@
+// Hardware and Windows process boundaries for host-only orchestration tests.
+package main
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+const recoveryFile = "recovery.json"
+
+var rig struct {
+	current, original                       Snapshot
+	failStage                               string
+	game, active, readOnly, reset, restored bool
+	changes, controls, finals, stress       int
+}
+
+type GPU struct{}
+
+func openGPU() (*GPU, error)               { return &GPU{}, nil }
+func (g *GPU) close()                      {}
+func (g *GPU) snapshot() (Snapshot, error) { return rig.current, nil }
+func (g *GPU) hasSetter() bool             { return true }
+func (g *GPU) sample(full bool) (Sample, error) {
+	v, h, c, m := 1000., 70., 55., 11000.
+	return Sample{Millivolts: &v, HotSpotC: &h, TempC: &c, MemoryMHz: &m, PerfCap: "Moc"}, nil
+}
+func (g *GPU) apply(ctx context.Context, base Snapshot, target []Point, restore bool, permit func(Snapshot) error) (Snapshot, error) {
+	if rig.game || rig.readOnly || !rig.active {
+		panic("write during game or without writable session")
+	}
+	live := rig.current
+	payload, err := prepareCurveWrite(base, live, target, restore)
+	if err != nil || len(payload) == 0 {
+		return live, err
+	}
+	if !restore {
+		if err := permit(live); err != nil {
+			return live, err
+		}
+		if rig.reset {
+			panic("experimental write following reset")
+		}
+		rig.changes++
+	}
+	rig.current = simulatedDriverSnapshot(live, payload, target)
+	return rig.current, verifyCurveResult(base, live, rig.current, target)
+}
+
+type Runner struct {
+	game, gameResults, gameSettings, settingsHash, folder string
+	gpu                                                   *GPU
+	fullSensors                                           bool
+	mark                                                  func() error
+	live                                                  func(Sample)
+}
+
+func (b Runner) settingsOK() error {
+	h, err := hashPath(b.gameSettings)
+	if err != nil {
+		return err
+	}
+	if h != b.settingsHash {
+		return errors.New("settings changed")
+	}
+	return nil
+}
+func (b Runner) run(ctx context.Context, r *Result, ceiling float64) error {
+	rig.game = true
+	defer func() { rig.game = false }()
+	if err := b.mark(); err != nil {
+		return err
+	}
+	if rig.failStage != "" && r.Stage == rig.failStage {
+		rig.reset = true
+		return errors.New("injected driver failure")
+	}
+	original := equalDeltas(rig.current.Points, rig.original.Points)
+	if (r.UV == 0) != original {
+		panic("measurement labeled for the wrong profile")
+	}
+	r.Seconds = 60
+	r.FPS = 100
+	r.Low1 = 85
+	r.Low01 = 75
+	r.FrametimeP99 = 12
+	r.CoreMedian = 2820
+	r.CoreSpread = 30
+	r.VoltageMedian = 1012.5
+	r.VoltageMax = 1025
+	r.WattsMedian = 220
+	r.TempMax = 65
+	r.VRAMMHz = 11000
+	if r.UV > 0 {
+		r.FPS += 1
+		r.VoltageMedian = float64(r.UV) / 1000
+		r.WattsMedian = 190
+		if r.UV < 975000 {
+			r.FPS = 80
+		}
+	}
+	switch r.Stage {
+	case "Kontrola w próbie godzinnej":
+		rig.controls++
+	case "Powtórka finalisty":
+		rig.finals++
+	case "Wydłużona próba":
+		rig.stress++
+	}
+	return nil
+}
+func (e *Engine) waitComparable(ctx context.Context, r *Result) error { return ctx.Err() }
+func processExists(name string) (bool, error) {
+	if name == "Cyberpunk2077.exe" {
+		return rig.game, nil
+	}
+	return true, nil
+}
+func captureDriverEvent(string, time.Time) error { return nil }
+func checkBenchmarkInterference() error          { return nil }
+func (m MSIBackup) guard(path string) error {
+	next, err := scanMSI(path)
+	if err == nil && !m.same(next) {
+		return errors.New("MSI changed")
+	}
+	return err
+}
+func verifyOriginalMSISlot(MSIBackup, Snapshot, int) error { return nil }
+func verifiedMSILoad(string, int, MSIBackup) error {
+	if rig.readOnly || rig.game {
+		panic("unexpected MSI load")
+	}
+	rig.current = rig.original
+	rig.restored = true
+	return nil
+}
+
+var documentsGUID int
+
+func knownFolder(*int) (string, error) { return os.Getenv("LOCALAPPDATA"), nil }
+func singleInstance() (uintptr, error) { return 1, nil }
+func closeHandle(uintptr)              {}
+func arm(root string, r *Recovery) error {
+	r.Format = 1
+	if err := verifyRecoveryBackup(*r); err != nil {
+		return err
+	}
+	rig.active = true
+	rig.readOnly = r.ReadOnly
+	return writeJSON(filepath.Join(root, recoveryFile), r)
+}
+func disarm(root string, r Recovery) error {
+	rig.active = false
+	return os.Remove(filepath.Join(root, recoveryFile))
+}
+func (r Recovery) mark() error { return nil }
+func (r Recovery) checkWatchdog() error {
+	if !rig.active {
+		return errors.New("watchdog absent")
+	}
+	return nil
+}
+func (r Recovery) checkWrite(string) error {
+	if rig.readOnly || !rig.active {
+		return errors.New("blocked write")
+	}
+	return nil
+}
+func (r Recovery) safetyFilesIntact(string) error { return nil }
+func (r Recovery) recreateMissingJournal(string) error {
+	return errors.New("unexpected missing journal")
+}
+func recoveryLog(string, string) {}
+
+func TestSimulatedSession(t *testing.T) {
+	for _, scenario := range []struct{ mode, failure string }{{"Pomiar OC", ""}, {"Dry Run", ""}, {"Optymalizacja", ""}, {"Optymalizacja", "Powtórka finalisty"}} {
+		t.Run(scenario.mode+"/"+scenario.failure, func(t *testing.T) {
+			files := makeRecoveryFiles(t, "Optymalizacja", false)
+			root := t.TempDir()
+			t.Setenv("LOCALAPPDATA", root)
+			dir := filepath.Join(root, "CD Projekt Red", "Cyberpunk 2077")
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			game := filepath.Join(root, "Cyberpunk2077.exe")
+			for _, path := range []string{game, filepath.Join(dir, "UserSettings.json")} {
+				if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.MkdirAll(filepath.Join(root, "sesje"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			rig.original = syntheticSnapshot()
+			rig.current = rig.original
+			rig.active = false
+			rig.game = false
+			rig.readOnly = false
+			rig.reset = false
+			rig.restored = false
+			rig.changes = 0
+			rig.finals = 0
+			rig.stress = 0
+			rig.controls = 0
+			rig.failStage = scenario.failure
+			e := Engine{root: root, cfg: Config{game, files.MSIX, 1}, update: func(Session) {}, live: func(Sample) {}}
+			err := e.start(context.Background(), scenario.mode)
+			if scenario.failure != "" {
+				if err == nil || !rig.reset || !rig.active || e.session.Healthy || e.session.Winner != 0 {
+					t.Fatal("failed run bypassed recovery", err)
+				}
+				last := e.session.Runs[len(e.session.Runs)-1]
+				if last.Stage != scenario.failure || last.Error == "" {
+					t.Fatal("scheduled another game or failed to log incident")
+				}
+				old := rig.current.GPU.Driver
+				rig.current.GPU.Driver++
+				if err = restoreIndependent(root, false); err == nil || !rig.active {
+					t.Fatal("cleared gate after driver changed", err)
+				}
+				rig.current.GPU.Driver = old
+				if err = restoreIndependent(root, false); err != nil || rig.active || !exactOriginal(rig.original, rig.current) {
+					t.Fatal("failed to restore after incident", err)
+				}
+				return
+			}
+			if err != nil || !e.session.Healthy || rig.active || !exactOriginal(rig.original, rig.current) {
+				t.Fatal("session did not finish cleanly", err)
+			}
+			switch scenario.mode {
+			case "Pomiar OC":
+				if len(e.session.Runs) != 3 || rig.changes != 0 {
+					t.Fatal("incorrect baseline")
+				}
+			case "Dry Run":
+				if len(e.session.Runs) != 6 || rig.changes != 0 || rig.restored {
+					t.Fatal("dry run wrote to GPU or reported wrong count")
+				}
+			case "Optymalizacja":
+				if !rig.restored || rig.finals < 5 || rig.stress < 60 || rig.controls < 5 || rig.changes < 3 || e.session.Winner == 0 {
+					t.Fatal("incomplete search", rig.finals, rig.stress, rig.controls, e.session.Winner)
+				}
+				if _, err = verifiedWinnerTarget(e.session); err != nil {
+					t.Fatal(err)
+				}
+				previewCtx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				armed := false
+				err = previewWinner(previewCtx, root, e.dir, e.cfg, e.session, e.live, func(string) { cancel() }, &armed)
+				if err != nil || !armed || rig.active || !exactOriginal(rig.original, rig.current) {
+					t.Fatal("STOP in preview failed to restore", err)
+				}
+			}
+		})
+	}
+}
