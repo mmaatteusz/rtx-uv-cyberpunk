@@ -43,6 +43,12 @@ Jeżeli automatyczny start zaczyna scenę przed pełnym załadowaniem renderowan
 
 Ustawienia grafiki zapisz przed sesją. Aplikacja przerywa pomiar przy zmianie pliku ustawień. Jeśli zobaczysz zmianę renderowania w trakcie sceny, przerwij próbę i rozpocznij nową sesję od początku. Aplikacja czyta plik ustawień i eksporty benchmarku, a stan renderowania podczas sceny wymaga obserwacji na komputerze.
 
+### Różnice w Power Limit i FanSpeed
+
+Aplikacja porównuje limit mocy zapisany w wybranym slocie MSI z bieżącym limitem odczytanym z karty przez NVIDIA NVML. Limit z sekcji `Startup` może być inny i pozostaje bez zmian. Rzeczywista niezgodność z kartą przerwie sesję i pokaże wartości obu limitów. W takim przypadku zastosuj zapisany profil odniesienia w MSI i sprawdź ponownie w **Dry Run**.
+
+Różnica w zapisanym `FanSpeed` jest dopuszczalna, jeśli zarówno slot, jak i sekcja `Startup` mają jednoznacznie zapisany tryb Auto dla tego wentylatora. Różnica trybu, ręcznej nastawy lub nierozpoznanego trybu nadal przerywa sesję. Sama weryfikacja nie zapisuje nastaw wentylatora ani sekcji `Startup`.
+
 ## Granice zmian w GPU
 
 Aplikacja zmienia wyłącznie wybrane offsety częstotliwości rdzenia na istniejących punktach V/F przez sterownik NVIDIA. Wyższe taktowanie przy niższym napięciu może odpowiadać częstotliwości, którą fabryczna siatka z oryginalną krzywą OC Scanner udostępniała już przy wyższym napięciu. Siatka napięć, VBIOS, firmware, zabezpieczenia GPU i fabryczne limity pozostają nietknięte. Aplikacja odczytuje zdarzenia TDR z dziennika Windows. Parametry `TdrDelay` i `TdrLevel` pozostają takie jak przed uruchomieniem.

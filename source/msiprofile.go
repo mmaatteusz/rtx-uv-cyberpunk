@@ -140,14 +140,28 @@ func compareMSISettings(start, slot *msiSection, base Snapshot) error {
 	if start == nil || slot == nil {
 		return errors.New("brak zapisanej sekcji Startup lub oryginalnego slotu MSI")
 	}
+	// Startup is an on-disk profile, so its power limit can differ from the
+	// value currently applied. Validate the selected slot against NVML below.
+	compareStoredField := func(field string) bool {
+		switch field {
+		case "vfcurve", "powerlimit":
+			return false
+		case "fanspeed":
+			return start.fields["fanmode"] != "0" || slot.fields["fanmode"] != "0"
+		case "fanspeed2":
+			return start.fields["fanmode2"] != "0" || slot.fields["fanmode2"] != "0"
+		default:
+			return true
+		}
+	}
 	for field, value := range slot.fields {
-		if field != "vfcurve" && start.fields[field] != value {
-			return fmt.Errorf("zapisany slot i aktywna konfiguracja MSI mają różne wartości pola %s", field)
+		if compareStoredField(field) && start.fields[field] != value {
+			return fmt.Errorf("wartość %s różni się między slotem MSI (%q) a sekcją Startup (%q)", field, value, start.fields[field])
 		}
 	}
 	for field, value := range start.fields {
-		if field != "vfcurve" && slot.fields[field] != value {
-			return fmt.Errorf("zapisany slot nie zawiera aktywnego pola %s", field)
+		if compareStoredField(field) && slot.fields[field] != value {
+			return fmt.Errorf("wartość %s różni się między slotem MSI (%q) a sekcją Startup (%q)", field, slot.fields[field], value)
 		}
 	}
 	memory, err := strconv.Atoi(slot.fields["memclkboost"])
@@ -160,9 +174,18 @@ func compareMSISettings(start, slot *msiSection, base Snapshot) error {
 	if err != nil || absInt(memory-delta) > 3000 {
 		return errors.New("zapisany slot MSI nie potwierdza bieżącego offsetu VRAM")
 	}
-	power, err := strconv.Atoi(slot.fields["powerlimit"])
-	if err != nil || power <= 0 || math.Abs(float64(base.PowerMW)-float64(base.FactoryPowerMW)*float64(power)/100) > 1000 {
-		return errors.New("zapisany slot MSI nie potwierdza bieżącego Power Limit")
+	rawPowerLimit := slot.fields["powerlimit"]
+	power, err := strconv.Atoi(rawPowerLimit)
+	if err != nil || power <= 0 {
+		return fmt.Errorf("zapisany slot MSI ma nieprawidłowy Power Limit (%q)", rawPowerLimit)
+	}
+	if base.PowerMW <= 0 || base.FactoryPowerMW <= 0 {
+		return errors.New("brak wiarygodnego odczytu bieżącego lub fabrycznego Power Limit z NVIDIA NVML")
+	}
+	slotPowerMW := float64(base.FactoryPowerMW) * float64(power) / 100
+	if math.Abs(float64(base.PowerMW)-slotPowerMW) > 1000 {
+		return fmt.Errorf("Power Limit w slocie MSI to %d%% (%.1f W), a na karcie %.1f W według NVIDIA NVML",
+			power, slotPowerMW/1000, float64(base.PowerMW)/1000)
 	}
 	return nil
 }

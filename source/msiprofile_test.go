@@ -52,6 +52,64 @@ func TestMSIRejectsMismatchedSlotAndCurve(t *testing.T) {
 	}
 }
 
+func TestMSIPowerLimitUsesSelectedSlotAndLiveGPU(t *testing.T) {
+	base, raw := fixtureMSI()
+	sections, err := msiINI(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, slot := sections["startup"], sections["profile1"]
+	start.fields["powerlimit"] = "90"
+	if err = compareMSISettings(start, slot, base); err != nil {
+		t.Fatalf("odrzucono limit slotu zgodny z GPU: %v", err)
+	}
+	start.fields["powerlimit"] = "100"
+	base.PowerMW = 198_000
+	if err = compareMSISettings(start, slot, base); err == nil || !strings.Contains(err.Error(), "198.0 W") {
+		t.Fatalf("brak rzeczywistego limitu GPU w błędzie: %v", err)
+	}
+	slot.fields["powerlimit"] = "90"
+	if err = compareMSISettings(start, slot, base); err != nil {
+		t.Fatalf("odrzucono niestandardowy limit slotu widoczny w NVML: %v", err)
+	}
+	delete(slot.fields, "powerlimit")
+	if err = compareMSISettings(start, slot, base); err == nil {
+		t.Fatal("zaakceptowano slot bez limitu mocy")
+	}
+}
+
+func TestMSIIgnoresStoredFanSpeedOnlyInAutomaticMode(t *testing.T) {
+	base, raw := fixtureMSI()
+	for _, suffix := range []string{"", "2"} {
+		t.Run("fan"+suffix, func(t *testing.T) {
+			sections, err := msiINI(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			start, slot := sections["startup"], sections["profile1"]
+			mode, speed := "fanmode"+suffix, "fanspeed"+suffix
+			start.fields[mode], slot.fields[mode] = "0", "0"
+			start.fields[speed], slot.fields[speed] = "55", "30"
+			if err = compareMSISettings(start, slot, base); err != nil {
+				t.Fatalf("odrzucono nieaktywny nastaw ręczny: %v", err)
+			}
+			slot.fields[mode] = "1"
+			if err = compareMSISettings(start, slot, base); err == nil {
+				t.Fatal("zaakceptowano inny tryb wentylatora")
+			}
+			start.fields[mode] = "1"
+			if err = compareMSISettings(start, slot, base); err == nil {
+				t.Fatal("zaakceptowano inną nastawę ręczną")
+			}
+			delete(start.fields, mode)
+			delete(slot.fields, mode)
+			if err = compareMSISettings(start, slot, base); err == nil {
+				t.Fatal("pominięto różnicę bez potwierdzenia trybu Auto")
+			}
+		})
+	}
+}
+
 func TestMeasuredTiesFavorExistingOC(t *testing.T) {
 	c := Criteria{FPS: Band{Slack: .5}, Low1: Band{Slack: .6}, Spread: Band{Slack: 12}, Power: Band{Slack: 2}, Temp: Band{Slack: 1}}
 	original := Rank{FPS: 90, Low1: 70, ClockSpread: 30, Watts: 221, MaxTemp: 75, Volts: 1060}
