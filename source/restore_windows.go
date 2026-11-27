@@ -28,6 +28,13 @@ func restoreIndependent(root string, waiting bool) error {
 	if err = verifyRecoveryBackup(r); err != nil {
 		return err
 	}
+	if r.ReadOnly {
+		if err = disarm(root, r); err != nil {
+			return err
+		}
+		recoveryLog(root, "zamknięto dziennik Dry Run; sesja wyłącznie do odczytu")
+		return nil
+	}
 	if waiting {
 		time.Sleep(12 * time.Second)
 	}
@@ -60,7 +67,7 @@ func recoverAttempt(root string, r Recovery, msiTried *bool) (done, retry bool, 
 	if !r.Before.compatibleWith(current) {
 		return false, false, errors.New("zmieniła się karta, wersja sterownika, VBIOS lub układ punktów. Wczytaj oryginalny slot MSI i zweryfikuj ustawienia")
 	}
-	if !r.ReadOnly && !*msiTried {
+	if !*msiTried {
 		msi, err := scanMSI(r.MSIX)
 		if err != nil {
 			return false, true, err
@@ -84,9 +91,6 @@ func recoverAttempt(root string, r Recovery, msiTried *bool) (done, retry bool, 
 		}
 		recoveryLog(root, "oryginalne offsety V/F, kształt krzywej i ustawienia MSI zweryfikowane")
 		return true, false, nil
-	}
-	if r.ReadOnly {
-		return false, false, fmt.Errorf("Dry Run oczekuje zgodnego odczytu oryginalnego profilu: %w", err)
 	}
 	if !r.Before.protectedEqual(current) || !preservedTable(r.Before, current) {
 		// Keep the recovery gate. Only the verified original MSI slot can

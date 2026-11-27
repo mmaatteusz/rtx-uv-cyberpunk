@@ -184,9 +184,9 @@ func computeFrames(source io.Reader, summary reportedFrames, result *Result) ([]
 	}
 	rowCount := len(rows) - 1
 	ratio := 1
-	// With frame generation, the summary can count two frames for each
-	// CSV row. Verify the ratio against both clocks before accepting it.
-	if summary.Count == 2*rowCount {
+	// With frame generation, the first or last row can represent a partial
+	// pair. Verify the roughly 2:1 count against both clocks before accepting it.
+	if absInt(summary.Count-2*rowCount) <= 2 {
 		ratio = 2
 	}
 	if summary.FPS < 8 || summary.FPS > 1500 || summary.Count < 500 || math.Abs(float64(ratio*rowCount-summary.Count)) > math.Max(3, float64(summary.Count)*.015) {

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,6 +17,7 @@ const recoveryFile = "recovery.json"
 var rig struct {
 	current, original                       Snapshot
 	failStage                               string
+	dryRunOffsetChanged                     bool
 	game, active, readOnly, reset, restored bool
 	rejectSlot                              bool
 	changes, controls, finals, stress       int
@@ -105,6 +108,12 @@ func (b Runner) run(ctx context.Context, r *Result, ceiling float64) error {
 		}
 	}
 	switch r.Stage {
+	case "Dry Run · test odczytu":
+		rig.current.Points = slices.Clone(rig.current.Points)
+		rig.current.Points[0].LiveKHz -= 60000
+		if rig.dryRunOffsetChanged {
+			rig.current.Points[0].DeltaKHz -= 15000
+		}
 	case "Kontrola w próbie godzinnej":
 		rig.controls++
 	case "Powtórka finalisty":
@@ -183,7 +192,7 @@ func (r Recovery) recreateMissingJournal(string) error {
 func recoveryLog(string, string) {}
 
 func TestSimulatedSession(t *testing.T) {
-	for _, scenario := range []struct{ mode, failure string }{{"Pomiar OC", ""}, {"Dry Run", ""}, {"Optymalizacja", ""}, {"Optymalizacja", "Powtórka finalisty"}} {
+	for _, scenario := range []struct{ mode, failure string }{{"Pomiar OC", ""}, {"Dry Run", ""}, {"Dry Run", "offset"}, {"Optymalizacja", ""}, {"Optymalizacja", "Powtórka finalisty"}} {
 		t.Run(scenario.mode+"/"+scenario.failure, func(t *testing.T) {
 			files := makeRecoveryFiles(t, "Optymalizacja", false)
 			root := t.TempDir()
@@ -214,8 +223,16 @@ func TestSimulatedSession(t *testing.T) {
 			rig.controls = 0
 			rig.failStage = scenario.failure
 			rig.rejectSlot = scenario.mode == "Dry Run"
+			rig.dryRunOffsetChanged = scenario.mode == "Dry Run" && scenario.failure == "offset"
 			e := Engine{root: root, cfg: Config{Game: game, MSI: files.MSIX, Slot: 1}, update: func(Session) {}, live: func(Sample) {}}
 			err := e.start(context.Background(), scenario.mode)
+			if rig.dryRunOffsetChanged {
+				if err == nil || !strings.Contains(err.Error(), "zmienił się offset V/F") || len(e.session.Runs) != 1 || rig.active ||
+					e.session.Healthy || rig.changes != 0 || rig.restored {
+					t.Fatal("Dry Run ignored a real offset change or attempted recovery", err)
+				}
+				return
+			}
 			if scenario.failure != "" {
 				if err == nil || !rig.reset || !rig.active || e.session.Healthy || e.session.Winner != 0 {
 					t.Fatal("failed run bypassed recovery", err)
@@ -254,6 +271,16 @@ func TestSimulatedSession(t *testing.T) {
 				}
 				if _, err := os.Stat(filepath.Join(e.dir, "plan-dry-run.json")); err != nil {
 					t.Fatal("dry run did not run its voltage simulation", err)
+				}
+				if restoreShape(rig.original.Points, rig.current.Points) {
+					t.Fatal("fixture did not trigger a change of live curve readings")
+				}
+				if err := arm(root, &e.recovery); err != nil {
+					t.Fatal(err)
+				}
+				rig.current.GPU.Driver++
+				if err := restoreIndependent(root, true); err != nil || rig.active || rig.restored || rig.changes != 0 {
+					t.Fatal("failed to close a read-only journal without a GPU write", err)
 				}
 			case "Optymalizacja":
 				if !rig.restored || rig.finals < 5 || rig.stress < 60 || rig.controls < 5 || rig.changes < 3 || e.session.Winner == 0 {

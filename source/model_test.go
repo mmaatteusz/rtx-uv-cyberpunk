@@ -64,28 +64,45 @@ func TestFramesFromTimestamps(t *testing.T) {
 }
 
 func TestFrameGenerationSummaryKeepsSeparateCSVFPS(t *testing.T) {
-	const rows, reported = 3196, 6392
-	const gameFPS = 99.07
-	seconds := reported / gameFPS
-	frameMS := seconds * 1000 / rows
-	makeCSV := func(ms float64) string {
-		return "FrameTimeMs\n" + strings.Repeat(fmt.Sprintf("%.9f\n", ms), rows)
-	}
-	summary := reportedFrames{FPS: gameFPS, Count: reported, Time: seconds}
-	var result Result
-	if _, err := computeFrames(strings.NewReader(makeCSV(frameMS)), summary, &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.GameFPS != gameFPS || math.Abs(result.FPS-gameFPS/2) > .005 ||
-		math.Abs(result.Low1-result.FPS) > .005 || result.FrameCount != rows || result.FrameCountRatio != 2 {
-		t.Fatalf("zmieszano metryki gry i CSV: %#v", result)
-	}
-	if _, err := computeFrames(strings.NewReader(makeCSV(frameMS/2)), summary, &Result{}); err == nil {
-		t.Fatal("zaakceptowano plik obejmujący tylko połowę sceny")
-	}
-	summary.Time += 4
-	if _, err := computeFrames(strings.NewReader(makeCSV(frameMS)), summary, &Result{}); err == nil {
-		t.Fatal("zaakceptowano zgodne liczniki bez zgodności czasu sceny")
+	for _, tc := range []struct {
+		rows, reported int
+		gameFPS        float64
+	}{
+		{3196, 6392, 99.07},
+		{2971, 5941, 92.49},
+		{2971, 5943, 92.49},
+	} {
+		t.Run(fmt.Sprintf("%d-%d", tc.reported, tc.rows), func(t *testing.T) {
+			seconds := float64(tc.reported) / tc.gameFPS
+			frameMS := seconds * 1000 / float64(tc.rows)
+			makeCSV := func(ms float64) string {
+				return "FrameTimeMs\n" + strings.Repeat(fmt.Sprintf("%.9f\n", ms), tc.rows)
+			}
+			summary := reportedFrames{FPS: tc.gameFPS, Count: tc.reported, Time: seconds}
+			var result Result
+			if _, err := computeFrames(strings.NewReader(makeCSV(frameMS)), summary, &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.GameFPS != tc.gameFPS || math.Abs(result.FPS-float64(tc.rows)/seconds) > .005 ||
+				math.Abs(result.Low1-result.FPS) > .005 || result.FrameCount != tc.rows || result.FrameCountRatio != 2 {
+				t.Fatalf("zmieszano metryki gry i CSV: %#v", result)
+			}
+			for _, bad := range []struct {
+				count  int
+				timing float64
+				ms     float64
+			}{
+				{tc.reported, seconds, frameMS / 2},
+				{tc.reported, seconds + 4, frameMS},
+				{2*tc.rows - 3, seconds, frameMS},
+				{2*tc.rows + 3, seconds, frameMS},
+			} {
+				s := reportedFrames{FPS: tc.gameFPS, Count: bad.count, Time: bad.timing}
+				if _, err := computeFrames(strings.NewReader(makeCSV(bad.ms)), s, &Result{}); err == nil {
+					t.Fatalf("zaakceptowano niespójny eksport: %+v", bad)
+				}
+			}
+		})
 	}
 }
 

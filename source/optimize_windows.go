@@ -104,9 +104,20 @@ func (e *Engine) guard(full bool) error {
 	if err != nil {
 		return fmt.Errorf("utracono odczyt profilu GPU: %v", err)
 	}
-	if !e.base.compatibleWith(current) || !e.base.protectedEqual(current) || !preservedTable(e.base, current) ||
-		!equalDeltas(e.expected, current.Points) {
-		return errors.New("wykryto nadpisanie krzywej lub parametrów chronionych w trakcie sesji")
+	switch {
+	case !e.base.compatibleWith(current):
+		return errors.New("zmieniła się tożsamość GPU, wersja sterownika lub siatka napięć V/F")
+	case !e.base.protectedEqual(current):
+		return errors.New("odczyt chronionych parametrów GPU różni się od początku sesji")
+	case !preservedTable(e.base, current):
+		return errors.New("zmienił się offset w tabeli sterownika poza krzywą rdzenia")
+	case !equalDeltas(e.expected, current.Points):
+		for i, point := range current.Points[:min(len(current.Points), len(e.expected))] {
+			if point.DeltaKHz != e.expected[i].DeltaKHz {
+				return fmt.Errorf("zmienił się offset V/F przy %.2f mV (oczekiwano %.1f MHz, odczytano %.1f MHz)", float64(point.UV)/1000, float64(e.expected[i].DeltaKHz)/1000, float64(point.DeltaKHz)/1000)
+			}
+		}
+		return errors.New("odczyt offsetów V/F różni się od oczekiwanej krzywej")
 	}
 	return nil
 }
@@ -746,17 +757,15 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 		if e.armed && !e.recovery.ReadOnly && retErr != nil {
 			retErr = errors.Join(retErr, e.recoverIfSafetyFilesChanged())
 		}
-		if e.armed && (retErr == nil || e.recovery.ReadOnly) {
-			var restoreErr error
-			if e.recovery.ReadOnly {
-				current, err := e.gpu.snapshot()
-				restoreErr = err
-				if restoreErr == nil {
-					restoreErr = confirmOriginal(e.recovery, current)
-				}
-			} else {
-				restoreErr = e.restoreDirect()
+		if e.armed && e.recovery.ReadOnly {
+			if retErr == nil {
+				// Check the configured offsets and settings. Live boost
+				// frequencies can change as the GPU goes back to idle.
+				retErr = e.guard(true)
 			}
+			retErr = errors.Join(retErr, disarm(e.root, e.recovery))
+		} else if e.armed && retErr == nil {
+			restoreErr := e.restoreDirect()
 			if restoreErr == nil {
 				restoreErr = disarm(e.root, e.recovery)
 			}
@@ -768,7 +777,7 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 			retErr = errors.Join(retErr, e.save(status))
 		case mode == "Dry Run":
 			e.session.Healthy = true
-			retErr = e.save("Dry Run ukończony. Oryginalne ustawienia potwierdzone")
+			retErr = e.save("Dry Run ukończony. Offsety V/F i ustawienia chronione zgodne z początkiem sesji")
 		case mode != "Optymalizacja":
 			e.session.Healthy = true
 			retErr = e.save("Ukończono pomiary aktualnego profilu OC")

@@ -43,6 +43,12 @@ Jeżeli automatyczny start zaczyna scenę przed pełnym załadowaniem renderowan
 
 Ustawienia grafiki zapisz przed sesją. Aplikacja przerywa pomiar przy zmianie pliku ustawień. Jeśli zobaczysz zmianę renderowania w trakcie sceny, przerwij próbę i rozpocznij nową sesję od początku. Aplikacja czyta plik ustawień i eksporty benchmarku, a stan renderowania podczas sceny wymaga obserwacji na komputerze.
 
+### Liczba klatek i komunikat po Dry Run
+
+Przy proporcji około 2:1 aplikacja dopuszcza do dwóch klatek różnicy od podwojonej liczby wierszy CSV. Przykład z gry to 5941 klatek i 2971 wierszy. Wynik może przejść dopiero po potwierdzeniu zgodności czasu sceny i FPS pomiędzy eksportami. Średni FPS z gry jest pokazywany osobno od FPS, frametime, 1% Low i 0,1% Low obliczonych z CSV.
+
+Końcowa kontrola Dry Run sprawdza odczyt offsetów V/F i chronionych ustawień. Chwilowy odczyt częstotliwości krzywej może się zmieniać przy przejściu GPU w bezczynność. Jeśli poprzednia wersja zostawiła oczekujący dziennik Dry Run, użyj **Odzyskaj oryginał** w nowej wersji. Program sprawdzi powiązanie dziennika z kopią i zamknie go bez ładowania slotu MSI. Dla sesji, które stroiły GPU, przycisk nadal uruchamia pełną weryfikację i odzyskiwanie.
+
 ### Różnice w Power Limit i FanSpeed
 
 Aplikacja porównuje limit mocy zapisany w wybranym slocie MSI z bieżącym limitem odczytanym z karty przez NVIDIA NVML. Limit z sekcji `Startup` może być inny i pozostaje bez zmian. Rzeczywista niezgodność z kartą przerwie sesję i pokaże wartości obu limitów. W takim przypadku zastosuj zapisany profil odniesienia w MSI i sprawdź ponownie w **Dry Run**.

@@ -94,9 +94,11 @@ func arm(root string, r *Recovery) error {
 	if err != nil {
 		return err
 	}
-	script := "@echo off\r\nif exist \"%LOCALAPPDATA%\\RTX-UV-Cyberpunk\\oczekujace-odzyskiwanie.json\" start \"\" \"%LOCALAPPDATA%\\RTX-UV-Cyberpunk\\odzyskiwanie.exe\" --recover-at-logon\r\n"
-	if err = writeOnce(entry, []byte(script)); err != nil {
-		return err
+	if !r.ReadOnly {
+		script := "@echo off\r\nif exist \"%LOCALAPPDATA%\\RTX-UV-Cyberpunk\\oczekujace-odzyskiwanie.json\" start \"\" \"%LOCALAPPDATA%\\RTX-UV-Cyberpunk\\odzyskiwanie.exe\" --recover-at-logon\r\n"
+		if err = writeOnce(entry, []byte(script)); err != nil {
+			return err
+		}
 	}
 	child := exec.Command(recoverExe, "--watch", strconv.Itoa(os.Getpid()), r.Token)
 	if err = child.Start(); err != nil {
