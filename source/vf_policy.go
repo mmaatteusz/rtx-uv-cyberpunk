@@ -54,6 +54,15 @@ func decodeCurve(mask, curve, table []byte) ([]Point, error) {
 			ended = true
 			continue
 		}
+		if len(points) >= 40 && points[len(points)-1].UV >= 900000 &&
+			khz >= 8000000 && khz <= 14000000 && uv >= 300000 && uv <= 1300000 &&
+			absInt(delta) <= 800000 && (ended || uv <= points[len(points)-1].UV) {
+			// RTX 4070 SUPER drivers can report trailing GDDR6X entries with
+			// the same type ID as the core. Only accept them past the core
+			// range or when voltage restarts. Hold their raw offsets intact.
+			ended = true
+			continue
+		}
 		if uv < 300000 || uv > 1300000 || khz < 100000 || khz > 3600000 {
 			return nil, fmt.Errorf("niepoprawny aktywny punkt rdzenia NVAPI nr %d (napięcie %d µV, zegar %d kHz, offset %d kHz)", i, uv, khz, delta)
 		}

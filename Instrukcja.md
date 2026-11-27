@@ -35,6 +35,8 @@ Aplikacja odczytuje istniejący plik ustawień gry oraz tworzy kopię konfigurac
 
 Przy nieprawidłowym odczycie krzywej aplikacja powtarza odczyt i zapisuje w komunikacie wersję sterownika. Komunikat o błędnym aktywnym punkcie zawiera jego numer, napięcie w µV, zegar i offset w kHz. Puste wpisy końcowe są pomijane, gdy cały rekord stanu oraz offset są zerowe i za nimi brak kolejnych aktywnych punktów rdzenia. Niejednoznaczny odczyt blokuje dobór UV. Jeśli błąd powtarza się w **Dry Run**, do diagnozy wystarczy pełna treść komunikatu.
 
+Sterownik 621.40 na RTX 4070 SUPER zgłosił w końcowej części tabeli wpis o zegarze 10 451 MHz i offsecie 200 MHz. Aplikacja oddziela wpisy o charakterystyce pamięci GDDR6X dopiero za kompletnym zakresem odczytu rdzenia i wyłącza ich indeksy z maski zapisu. Przed strojeniem nadal wymaga dopasowania całej odczytanej krzywej rdzenia do wskazanego slotu MSI. Jeśli po granicy wystąpi kolejny punkt rdzenia, aplikacja przerwie sesję.
+
 ## Granice zmian w GPU
 
 Aplikacja zmienia wyłącznie wybrane offsety częstotliwości rdzenia na istniejących punktach V/F przez sterownik NVIDIA. Wyższe taktowanie przy niższym napięciu może odpowiadać częstotliwości, którą fabryczna siatka z oryginalną krzywą OC Scanner udostępniała już przy wyższym napięciu. Siatka napięć, VBIOS, firmware, zabezpieczenia GPU i fabryczne limity pozostają nietknięte. Aplikacja odczytuje zdarzenia TDR z dziennika Windows. Parametry `TdrDelay` i `TdrLevel` pozostają takie jak przed uruchomieniem.

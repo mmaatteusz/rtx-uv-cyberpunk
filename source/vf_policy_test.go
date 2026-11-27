@@ -69,6 +69,63 @@ func TestDecodeCurveAcceptsOnlyEmptyTrailingRequests(t *testing.T) {
 	}
 }
 
+func TestAdaReportedMemoryEntryIsExcludedFromCoreAndPreservedOnWrite(t *testing.T) {
+	base := syntheticSnapshot()
+	const memorySlot = 130
+	off := 0x44 + memorySlot*28
+	base.RawMask[4+memorySlot/8] |= 1 << (memorySlot % 8)
+	put(base.RawCurve, off+4, 10_451_000)
+	put(base.RawCurve, off+8, 940_000)
+	put(base.RawTable, tableDelta(memorySlot), 200_000)
+	points, err := decodeCurve(base.RawMask, base.RawCurve, base.RawTable)
+	if err != nil || !slices.Equal(points, base.Points) {
+		t.Fatalf("odczyt rdzenia z końcowym wpisem VRAM: %v", err)
+	}
+	target, err := plateau(base.Points, 55, base.Points[64].LiveKHz, base.MinDeltaKHz, base.MaxDeltaKHz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet, err := prepareCurveWrite(base, base, target, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maskBit(packet[4:36], memorySlot) || i32(packet, tableDelta(memorySlot)) != 200_000 {
+		t.Fatal("wpis pamięci został objęty zapisem lub zmodyfikowany")
+	}
+	live := base
+	live.RawTable = slices.Clone(base.RawTable)
+	put(live.RawTable, tableDelta(memorySlot), 215_000)
+	if _, err = prepareCurveWrite(base, live, target, false); err == nil {
+		t.Fatal("zaakceptowano zmianę offsetu pamięci")
+	}
+}
+
+func TestDecodeCurveRejectsAmbiguousAdaMemoryEntries(t *testing.T) {
+	for _, name := range []string{"w środku rdzenia", "bez potwierdzonej granicy", "rdzeń po pamięci"} {
+		t.Run(name, func(t *testing.T) {
+			base := syntheticSnapshot()
+			point := 72
+			voltage := uint32(940_000)
+			switch name {
+			case "w środku rdzenia":
+				point = 60
+			case "bez potwierdzonej granicy":
+				voltage = 1_100_000
+			case "rdzeń po pamięci":
+				base.RawMask[4+73/8] |= 1 << (73 % 8)
+				put(base.RawCurve, 0x44+73*28+4, 2_800_000)
+				put(base.RawCurve, 0x44+73*28+8, 1_100_000)
+			}
+			base.RawMask[4+point/8] |= 1 << uint(point%8)
+			put(base.RawCurve, 0x44+point*28+4, 10_451_000)
+			put(base.RawCurve, 0x44+point*28+8, voltage)
+			if _, err := decodeCurve(base.RawMask, base.RawCurve, base.RawTable); err == nil {
+				t.Fatal("zaakceptowano niejednoznaczny punkt")
+			}
+		})
+	}
+}
+
 func simulatedDriverSnapshot(base Snapshot, payload []byte, goal []Point) Snapshot {
 	next := base
 	next.RawCurve, next.RawTable = slices.Clone(base.RawCurve), slices.Clone(base.RawTable)
