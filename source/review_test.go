@@ -83,6 +83,32 @@ func TestTelemetryRejectsMiddleAndEndGaps(t *testing.T) {
 	}
 }
 
+func TestTelemetryEvaluatesSceneAfterSlowLoading(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	scene := start.Add(95 * time.Second)
+	end := scene.Add(time.Minute)
+	core, voltage, watts, memory := 2_800., 995., 150., 10_000.
+	high, low := 99., 8.
+	var data []Sample
+	for at := start; !at.After(end); at = at.Add(500 * time.Millisecond) {
+		load := &low
+		if at.Equal(start) || !at.Before(scene) {
+			load = &high
+		}
+		data = append(data, Sample{Time: at, CoreMHz: &core, Millivolts: &voltage, Watts: &watts, LoadPct: load, MemoryMHz: &memory})
+	}
+	result := Result{Seconds: 60}
+	if err := telemetryMetrics(data, end, &result); err != nil || result.LoadMedian != high {
+		t.Fatalf("prawidłowa scena po długim ładowaniu: obciążenie %.0f%%, błąd %v", result.LoadMedian, err)
+	}
+	for i := range data {
+		data[i].LoadPct = &low
+	}
+	if err := telemetryMetrics(data, end, &Result{Seconds: 60}); err == nil {
+		t.Fatal("zaakceptowano przebieg bez obciążenia GPU w scenie")
+	}
+}
+
 func TestFramesRequireIndependentDuration(t *testing.T) {
 	data := "FrameTimeMs\n" + strings.Repeat("10\n", 5000)
 	if _, err := computeFrames(strings.NewReader(data), reportedFrames{FPS: 100, Count: 5000}, &Result{}); err == nil {

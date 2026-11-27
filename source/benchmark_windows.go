@@ -98,8 +98,6 @@ func (b Runner) run(ctx context.Context, r *Result, ceilingMV float64) (retErr e
 	timer := time.NewTicker(500 * time.Millisecond)
 	defer timer.Stop()
 	var end time.Time
-	lowSince := time.Time{}
-	hadLoad := false
 runLoop:
 	for {
 		select {
@@ -138,15 +136,6 @@ runLoop:
 			}
 			if err := checkThermalStop(s); err != nil {
 				return err
-			}
-			if *s.LoadPct >= 65 {
-				hadLoad = true
-				lowSince = time.Time{}
-			} else if hadLoad && lowSince.IsZero() {
-				lowSince = s.Time
-			}
-			if !lowSince.IsZero() && time.Since(lowSince) > 40*time.Second {
-				return errors.New("gra nie wróciła do obciążenia GPU przez 40 sekund")
 			}
 		}
 	}
