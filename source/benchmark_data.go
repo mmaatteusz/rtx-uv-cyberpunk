@@ -15,12 +15,12 @@ import (
 const warmupStage = "Rozgrzewka"
 const maxBenchmarkStartTempC = 45
 
-func stableBenchmarkTemperature(samples []float64, maxTemp float64) bool {
+func stableBenchmarkTemperature(samples []float64) bool {
 	if len(samples) < 5 {
 		return false
 	}
 	low, high := slices.Min(samples), slices.Max(samples)
-	return high-low <= 2 && (maxTemp == 0 || high <= maxTemp)
+	return high-low <= 2 && high <= maxBenchmarkStartTempC
 }
 
 func records(folder string) ([]string, error) {

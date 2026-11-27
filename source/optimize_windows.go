@@ -465,24 +465,26 @@ func (e *Engine) periodicOC(ctx context.Context, stage string) error {
 }
 
 func (e *Engine) dryRun(ctx context.Context) error {
-	// Exercise the same saved-slot check and candidate planner with the write
-	// path disabled. Simulated outcomes are kept separate from real measurements.
-	if err := verifyOriginalMSISlot(e.msi, e.base, e.cfg.Slot); err != nil {
-		return err
-	}
+	// Only compare live snapshots in Dry Run. A stored slot is needed for
+	// applying or recovering settings, not for measuring the active curve.
 	e.recovery = Recovery{MSIX: e.cfg.MSI, SessionDir: e.dir, Slot: e.cfg.Slot, Before: e.base, MSI: e.msi, ReadOnly: true}
 	if err := arm(e.root, &e.recovery); err != nil {
 		return err
 	}
 	e.armed = true
 	e.watchSince = time.Now()
-	run, err := e.run(ctx, "Dry Run · test odczytu", 0, 0)
-	if err != nil {
-		return err
+	var voltages, clocks []float64
+	for range 3 {
+		run, err := e.run(ctx, "Dry Run · test odczytu", 0, 0)
+		if err != nil {
+			return err
+		}
+		voltages = append(voltages, run.VoltageMedian)
+		clocks = append(clocks, run.CoreMedian)
 	}
-	plan, err := newVoltagePlan(e.base.Points, run.VoltageMedian, run.CoreMedian)
+	plan, err := newVoltagePlan(e.base.Points, median(voltages), median(clocks))
 	if err != nil {
-		return err
+		return writeJSON(filepath.Join(e.dir, "plan-dry-run.json"), map[string]string{"niedostępny": err.Error()})
 	}
 	type plannedTrial struct {
 		RequestedUV, DriverPointUV, StepUV int

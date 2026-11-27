@@ -16,7 +16,7 @@ Eksperymentalne narzędzie dla **Windows 11 x64 i NVIDIA GeForce RTX 4070 SUPER 
 | Tryb | Zachowanie |
 | --- | --- |
 | **Zmierz obecny OC** | Rozgrzewka i trzy benchmarki na obecnej krzywej. |
-| **Dry Run** | Jeden benchmark na obecnej krzywej i symulacja kolejnych napięć. |
+| **Dry Run** | Trzy benchmarki na aktualnej krzywej GPU, przy temperaturze startowej do 45°C. Porównanie slotu z sekcją Startup jest wykonywane przed operacjami wymagającymi strojenia. |
 | **Rozpocznij optymalizację** | Po potwierdzeniu sprawdza odtworzenie oryginału i tymczasowo testuje kolejne krzywe. Kończy przywróceniem oryginalnego profilu i pomiarem kontrolnym. |
 | **Wypróbuj UV przez 5 min** | Po potwierdzeniu tymczasowo stosuje krzywą zwycięzcy z ukończonej sesji. |
 | **Zapisz UV w MSI…** | Po zakończeniu gry i MSI dodaje zweryfikowaną krzywą zwycięzcy do potwierdzonego wolnego slotu. Przed zapisem robi kopię pliku. Sam import nie aktywuje UV i nie zmienia sekcji `Startup`. |

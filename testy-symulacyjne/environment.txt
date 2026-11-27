@@ -16,6 +16,7 @@ var rig struct {
 	current, original                       Snapshot
 	failStage                               string
 	game, active, readOnly, reset, restored bool
+	rejectSlot                              bool
 	changes, controls, finals, stress       int
 }
 
@@ -129,7 +130,12 @@ func (m MSIBackup) guard(path string) error {
 	}
 	return err
 }
-func verifyOriginalMSISlot(MSIBackup, Snapshot, int) error { return nil }
+func verifyOriginalMSISlot(MSIBackup, Snapshot, int) error {
+	if rig.rejectSlot {
+		return errors.New("CoreClkBoost differs between slot and Startup")
+	}
+	return nil
+}
 func verifiedMSILoad(string, int, MSIBackup) error {
 	if rig.readOnly || rig.game {
 		panic("unexpected MSI load")
@@ -207,6 +213,7 @@ func TestSimulatedSession(t *testing.T) {
 			rig.stress = 0
 			rig.controls = 0
 			rig.failStage = scenario.failure
+			rig.rejectSlot = scenario.mode == "Dry Run"
 			e := Engine{root: root, cfg: Config{Game: game, MSI: files.MSIX, Slot: 1}, update: func(Session) {}, live: func(Sample) {}}
 			err := e.start(context.Background(), scenario.mode)
 			if scenario.failure != "" {
@@ -242,7 +249,7 @@ func TestSimulatedSession(t *testing.T) {
 					t.Fatal("incorrect baseline")
 				}
 			case "Dry Run":
-				if len(e.session.Runs) != 1 || rig.changes != 0 || rig.restored {
+				if len(e.session.Runs) != 3 || rig.changes != 0 || rig.restored {
 					t.Fatal("dry run wrote to GPU or reported wrong count")
 				}
 				if _, err := os.Stat(filepath.Join(e.dir, "plan-dry-run.json")); err != nil {

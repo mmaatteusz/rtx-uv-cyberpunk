@@ -120,12 +120,9 @@ func TestBenchmarkStartTemperatureAllowsStableReadingsAtOrBelow45(t *testing.T) 
 		{[]float64{45, 44, 43, 42, 41}, false},
 		{[]float64{41, 41, 41, 41}, false},
 	} {
-		if ready := stableBenchmarkTemperature(trial.samples, maxBenchmarkStartTempC); ready != trial.ready {
+		if ready := stableBenchmarkTemperature(trial.samples); ready != trial.ready {
 			t.Errorf("próbki %v: gotowość %t, oczekiwano %t", trial.samples, ready, trial.ready)
 		}
-	}
-	if !stableBenchmarkTemperature([]float64{47, 47, 48, 47, 47}, 0) {
-		t.Fatal("Dry Run nie powinien czekać na próg 45°C")
 	}
 }
 

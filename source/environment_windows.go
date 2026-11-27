@@ -62,19 +62,12 @@ func (e *Engine) waitComparable(ctx context.Context, r *Result) error {
 	defer timeout.Stop()
 	lastStatus := time.Time{}
 	var recentTemp []float64
-	maxStartTemp := float64(maxBenchmarkStartTempC)
-	if e.session.Mode == "Dry Run" {
-		maxStartTemp = 0
-	}
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timeout.C:
-			if maxStartTemp == 0 {
-				return errors.New("przez 7 min nie uzyskano stabilnej temperatury i bezczynności CPU oraz GPU")
-			}
-			return fmt.Errorf("przez 7 min nie uzyskano stabilnych warunków startowych (GPU do %.0f °C, CPU i GPU w bezczynności)", maxStartTemp)
+			return fmt.Errorf("przez 7 min nie uzyskano stabilnych warunków startowych (GPU do %d °C, CPU i GPU w bezczynności)", maxBenchmarkStartTempC)
 		case <-tick.C:
 			if err := e.guard(false); err != nil {
 				return err
@@ -104,10 +97,8 @@ func (e *Engine) waitComparable(ctx context.Context, r *Result) error {
 				return errors.New("niespójna telemetria temperatury lub obciążenia")
 			}
 			if time.Since(lastStatus) > 4*time.Second {
-				message := fmt.Sprintf("%s · oczekiwanie na bezczynność · %.0f °C · CPU %.0f%% · GPU %.0f%%", r.Stage, temp, cpu, load)
-				if maxStartTemp > 0 {
-					message += fmt.Sprintf(" · start przy ≤%.0f °C", maxStartTemp)
-				}
+				message := fmt.Sprintf("%s · oczekiwanie na bezczynność · %.0f °C · CPU %.0f%% · GPU %.0f%% · start przy ≤%d °C",
+					r.Stage, temp, cpu, load, maxBenchmarkStartTempC)
 				e.session.Status = message
 				e.update(e.session)
 				lastStatus = time.Now()
@@ -120,7 +111,7 @@ func (e *Engine) waitComparable(ctx context.Context, r *Result) error {
 			if len(recentTemp) > 5 {
 				recentTemp = recentTemp[1:]
 			}
-			if !stableBenchmarkTemperature(recentTemp, maxStartTemp) {
+			if !stableBenchmarkTemperature(recentTemp) {
 				continue
 			}
 			r.StartTempC, r.StartCPUPct, r.StartGPUPct = temp, cpu, load
