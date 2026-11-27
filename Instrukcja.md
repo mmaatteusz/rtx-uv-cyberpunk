@@ -31,6 +31,10 @@ Import obsługuje pliki profili MSI w formacie 2 z jednoznacznym dopasowaniem ws
 
 Aplikacja odczytuje istniejący plik ustawień gry oraz tworzy kopię konfiguracji instalacji MSI i całego katalogu `Profiles` w ZIP-ie sesji. Zrzut karty zawiera odczytane punkty krzywej, ich indywidualne offsety, maskę, surowe struktury NVAPI, identyfikator GPU, ustawienia P-state, limity mocy i temperatury oraz dostępne dane wentylatorów. Znak „—” dla czujnika oznacza brak odczytu. Tryb optymalizacji wymaga również odczytu Hot Spot, PerfCap i zegara VRAM. W trybach odczytowych część czujników może być niedostępna. Parametry RGB, rozdzielczość, DLSS i Frame Generation pozostają takie jak w ustawieniach gry.
 
+### Błąd odczytu punktu NVAPI
+
+Przy nieprawidłowym odczycie krzywej aplikacja powtarza odczyt i zapisuje w komunikacie wersję sterownika. Komunikat o błędnym aktywnym punkcie zawiera jego numer, napięcie w µV, zegar i offset w kHz. Puste wpisy końcowe są pomijane, gdy cały rekord stanu oraz offset są zerowe i za nimi brak kolejnych aktywnych punktów rdzenia. Niejednoznaczny odczyt blokuje dobór UV. Jeśli błąd powtarza się w **Dry Run**, do diagnozy wystarczy pełna treść komunikatu.
+
 ## Granice zmian w GPU
 
 Aplikacja zmienia wyłącznie wybrane offsety częstotliwości rdzenia na istniejących punktach V/F przez sterownik NVIDIA. Wyższe taktowanie przy niższym napięciu może odpowiadać częstotliwości, którą fabryczna siatka z oryginalną krzywą OC Scanner udostępniała już przy wyższym napięciu. Siatka napięć, VBIOS, firmware, zabezpieczenia GPU i fabryczne limity pozostają nietknięte. Aplikacja odczytuje zdarzenia TDR z dziennika Windows. Parametry `TdrDelay` i `TdrLevel` pozostają takie jak przed uruchomieniem.

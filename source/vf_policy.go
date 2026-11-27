@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 )
@@ -35,22 +37,29 @@ func decodeCurve(mask, curve, table []byte) ([]Point, error) {
 	}
 	points := make([]Point, 0, 128)
 	ended := false
+	var emptyStatus [28]byte
 	for i := 0; i < 255; i++ {
 		off := 0x44 + i*28
 		kind, khz, uv := u32(curve, off), i32(curve, off+4), i32(curve, off+8)
-		if maskBit(mask[4:36], i) && kind == 0 && (uv < 300000 || uv > 1300000 || khz < 100000 || khz > 3600000) {
-			return nil, errors.New("niepoprawny aktywny punkt rdzenia sterownika")
-		}
 		if !maskBit(mask[4:36], i) || kind != 0 {
 			if len(points) > 0 {
 				ended = true
 			}
 			continue
 		}
-		if ended || (len(points) > 0 && uv <= points[len(points)-1].UV) {
-			return nil, errors.New("układ lub kolejność punktów NVAPI pozostają niejednoznaczne")
-		}
 		delta := i32(table, tableDelta(i))
+		if len(points) > 0 && delta == 0 && bytes.Equal(curve[off:off+28], emptyStatus[:]) {
+			// A requested slot can be empty at the end of the status table.
+			// A populated core point after it still makes the read ambiguous.
+			ended = true
+			continue
+		}
+		if uv < 300000 || uv > 1300000 || khz < 100000 || khz > 3600000 {
+			return nil, fmt.Errorf("niepoprawny aktywny punkt rdzenia NVAPI nr %d (napięcie %d µV, zegar %d kHz, offset %d kHz)", i, uv, khz, delta)
+		}
+		if ended || (len(points) > 0 && uv <= points[len(points)-1].UV) {
+			return nil, fmt.Errorf("niejednoznaczny układ krzywej NVAPI przy punkcie nr %d (napięcie %d µV, zegar %d kHz)", i, uv, khz)
+		}
 		if absInt(delta) > 800000 {
 			return nil, errors.New("offset w strukturze V/F poza zakresem")
 		}

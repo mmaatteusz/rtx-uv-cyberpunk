@@ -41,6 +41,34 @@ func syntheticSnapshot() Snapshot {
 	}
 }
 
+func TestDecodeCurveAcceptsOnlyEmptyTrailingRequests(t *testing.T) {
+	base := syntheticSnapshot()
+	base.RawMask[4+72/8] |= 1 << (72 % 8)
+	points, err := decodeCurve(base.RawMask, base.RawCurve, base.RawTable)
+	if err != nil || !slices.Equal(points, base.Points) {
+		t.Fatalf("pusty koniec tabeli: %v", err)
+	}
+
+	for _, name := range []string{"offset bez stanu", "niepełny stan", "aktywny punkt po przerwie"} {
+		t.Run(name, func(t *testing.T) {
+			mask, curve, table := slices.Clone(base.RawMask), slices.Clone(base.RawCurve), slices.Clone(base.RawTable)
+			switch name {
+			case "offset bez stanu":
+				put(table, tableDelta(72), 5_000)
+			case "niepełny stan":
+				put(curve, 0x44+72*28+4, 2_500_000)
+			case "aktywny punkt po przerwie":
+				mask[4+73/8] |= 1 << (73 % 8)
+				put(curve, 0x44+73*28+4, 2_500_000)
+				put(curve, 0x44+73*28+8, 1_100_000)
+			}
+			if _, err := decodeCurve(mask, curve, table); err == nil {
+				t.Fatal("niejednoznaczny punkt został zaakceptowany")
+			}
+		})
+	}
+}
+
 func simulatedDriverSnapshot(base Snapshot, payload []byte, goal []Point) Snapshot {
 	next := base
 	next.RawCurve, next.RawTable = slices.Clone(base.RawCurve), slices.Clone(base.RawTable)

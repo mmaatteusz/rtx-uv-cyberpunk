@@ -176,17 +176,25 @@ func (g *GPU) snapshot() (Snapshot, error) {
 		return s, err
 	}
 	mask := s.RawMask[4:36]
-	s.RawCurve, err = g.nvbuf(getVF, curveSize, 1, mask)
-	if err != nil {
-		return s, err
-	}
-	s.RawTable, err = g.nvbuf(getTable, tableSize, 1, mask)
-	if err != nil {
-		return s, err
-	}
-	s.Points, err = decodeCurve(s.RawMask, s.RawCurve, s.RawTable)
-	if err != nil {
-		return s, err
+	for attempt := 0; ; attempt++ {
+		s.RawCurve, err = g.nvbuf(getVF, curveSize, 1, mask)
+		if err != nil {
+			return s, err
+		}
+		s.RawTable, err = g.nvbuf(getTable, tableSize, 1, mask)
+		if err != nil {
+			return s, err
+		}
+		s.Points, err = decodeCurve(s.RawMask, s.RawCurve, s.RawTable)
+		if err == nil {
+			break
+		}
+		if attempt == 2 {
+			return s, fmt.Errorf("sterownik NVIDIA %d.%02d: %w", g.id.Driver/100, g.id.Driver%100, err)
+		}
+		// A power-state transition may temporarily collapse the reported curve.
+		// Repeat the status query without touching any GPU settings.
+		time.Sleep(125 * time.Millisecond)
 	}
 	s.RawPstates, err = g.nvbuf(0x6FF81213, 7316, 1, nil)
 	if err != nil {
