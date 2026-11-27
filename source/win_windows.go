@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -145,27 +144,6 @@ func (j Job) assign(pid int) error {
 }
 
 func (j Job) close() { closeHandle(j.handle) }
-
-func copyPath(from, to string) error {
-	in, err := os.Open(from)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(to, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(out, in)
-	if err == nil {
-		err = out.Sync()
-	}
-	closeErr := out.Close()
-	if err != nil {
-		return err
-	}
-	return closeErr
-}
 
 func (a MSIBackup) guard(path string) error {
 	now, err := scanMSI(path)

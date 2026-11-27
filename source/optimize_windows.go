@@ -18,6 +18,7 @@ type Config struct {
 	Game, MSI         string
 	Slot              int
 	BenchmarkFromMenu bool
+	ReuseBaseline     bool
 }
 
 type Engine struct {
@@ -485,8 +486,8 @@ func (e *Engine) dryRun(ctx context.Context) error {
 	e.armed = true
 	e.watchSince = time.Now()
 	var voltages, clocks []float64
-	for range 3 {
-		run, err := e.run(ctx, "Dry Run · test odczytu", 0, 0)
+	for range baselineCount {
+		run, err := e.run(ctx, dryRunStage, 0, 0)
 		if err != nil {
 			return err
 		}
@@ -719,6 +720,35 @@ func saveCurveCSV(path string, points []Point) error {
 	return out.Sync()
 }
 
+func (e *Engine) importBaseline(ctx context.Context) ([]Result, error) {
+	history := filepath.Join(e.root, "sesje")
+	runs, err := reusableBaseline(ctx, history, e.session, e.base, e.msi)
+	if err != nil {
+		return nil, fmt.Errorf("nie można użyć pomiarów z historii: %w", err)
+	}
+	for i, run := range runs {
+		original := run.Path
+		run.ReusedFrom, err = filepath.Rel(history, original)
+		if err != nil {
+			return nil, err
+		}
+		run.Path = filepath.Join(e.dir, fmt.Sprintf("test-%02d", i+1))
+		if err = os.Mkdir(run.Path, 0700); err != nil {
+			return nil, err
+		}
+		for _, name := range baselineFiles {
+			if err = copyPath(filepath.Join(original, name), filepath.Join(run.Path, name)); err != nil {
+				return nil, err
+			}
+		}
+		run.Stage = baselineStage
+		runs[i] = run
+	}
+	e.frameCountRatio = runs[0].FrameCountRatio
+	e.session.Runs = append(e.session.Runs, runs...)
+	return runs, e.save(fmt.Sprintf("Wczytano %d z %d pomiarów OC z historii", len(runs), baselineCount))
+}
+
 func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 	e.ctx = ctx
 	lease, err := singleInstance()
@@ -816,11 +846,6 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 		return err
 	}
 	e.expected = e.base.Points
-	if mode == "Optymalizacja" {
-		if err = e.armOptimization(); err != nil {
-			return err
-		}
-	}
 	gameConfig := filepath.Join(os.Getenv("LOCALAPPDATA"), "CD Projekt Red", "Cyberpunk 2077", "UserSettings.json")
 	settingsHash, err := hashPath(gameConfig)
 	if err != nil {
@@ -833,14 +858,33 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 	if mode == "Dry Run" {
 		return e.dryRun(ctx)
 	}
-	if _, err = e.run(ctx, warmupStage, 0, 0); err != nil {
-		return err
-	}
 	var baseRuns []Result
-	for i := 0; i < 3; i++ {
-		run, err := e.run(ctx, "Punkt odniesienia", 0, 0)
+	if mode == "Optymalizacja" {
+		if e.cfg.ReuseBaseline {
+			baseRuns, err = e.importBaseline(ctx)
+			if err != nil {
+				return err
+			}
+		}
+		if err = e.armOptimization(); err != nil {
+			return err
+		}
+	}
+	if len(baseRuns) == 0 {
+		if _, err = e.run(ctx, warmupStage, 0, 0); err != nil {
+			return err
+		}
+	}
+	reused := len(baseRuns)
+	for len(baseRuns) < baselineCount {
+		run, err := e.run(ctx, baselineStage, 0, 0)
 		if err != nil {
 			return err
+		}
+		for _, old := range baseRuns[:reused] {
+			if math.Abs(old.VRAMMHz-run.VRAMMHz) > 15 {
+				return errors.New("pomiar kontrolny OC wykazał inny zegar VRAM niż w historii")
+			}
 		}
 		baseRuns = append(baseRuns, run)
 		e.session.OCCeilingMV = max(e.session.OCCeilingMV, run.VoltageMax)
@@ -857,6 +901,9 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 	}
 	if mode != "Optymalizacja" {
 		return nil
+	}
+	if e.baselineVoltage > e.session.OCCeilingMV {
+		return errors.New("mediana napięcia bazy OC przekracza pułap zmierzony w świeżym przebiegu")
 	}
 	if err = e.probe(); err != nil {
 		return err

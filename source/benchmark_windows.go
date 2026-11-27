@@ -167,16 +167,7 @@ runLoop:
 			return err
 		}
 	}
-	summary, err := summaryFrom(filepath.Join(r.Path, "summary.json"))
-	if err != nil {
-		return err
-	}
-	frames, err := os.Open(filepath.Join(r.Path, "frames.csv"))
-	if err != nil {
-		return err
-	}
-	defer frames.Close()
-	if _, err = computeFrames(frames, summary, r); err != nil {
+	if _, err = readBenchmarkFrames(r.Path, r); err != nil {
 		return err
 	}
 	fileInfo, err := os.Stat(filepath.Join(newFolder, "frames.csv"))

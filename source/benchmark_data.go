@@ -81,6 +81,19 @@ func summaryFrom(path string) (reportedFrames, error) {
 	return doc.reportedFrames, nil
 }
 
+func readBenchmarkFrames(dir string, result *Result) ([]float64, error) {
+	summary, err := summaryFrom(filepath.Join(dir, "summary.json"))
+	if err != nil {
+		return nil, err
+	}
+	frames, err := os.Open(filepath.Join(dir, "frames.csv"))
+	if err != nil {
+		return nil, err
+	}
+	defer frames.Close()
+	return computeFrames(frames, summary, result)
+}
+
 func number(p *float64, places int) string {
 	if p == nil {
 		return ""

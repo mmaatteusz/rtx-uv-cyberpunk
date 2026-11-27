@@ -18,6 +18,7 @@ var rig struct {
 	current, original                       Snapshot
 	failStage                               string
 	dryRunOffsetChanged                     bool
+	reusing                                 bool
 	game, active, readOnly, reset, restored bool
 	rejectSlot                              bool
 	changes, controls, finals, stress       int
@@ -88,6 +89,7 @@ func (b Runner) run(ctx context.Context, r *Result, ceiling float64) error {
 		panic("measurement labeled for the wrong profile")
 	}
 	r.Seconds = 60
+	r.FrameCountRatio = 1
 	r.FPS = 100
 	r.Low1 = 85
 	r.Low01 = 75
@@ -99,6 +101,9 @@ func (b Runner) run(ctx context.Context, r *Result, ceiling float64) error {
 	r.WattsMedian = 220
 	r.TempMax = 65
 	r.VRAMMHz = 11000
+	if rig.reusing {
+		r.Low1, r.Low01, r.FrametimeP99 = 100, 100, 10
+	}
 	if r.UV > 0 {
 		r.FPS += 1
 		r.VoltageMedian = float64(r.UV) / 1000
@@ -192,8 +197,16 @@ func (r Recovery) recreateMissingJournal(string) error {
 func recoveryLog(string, string) {}
 
 func TestSimulatedSession(t *testing.T) {
-	for _, scenario := range []struct{ mode, failure string }{{"Pomiar OC", ""}, {"Dry Run", ""}, {"Dry Run", "offset"}, {"Optymalizacja", ""}, {"Optymalizacja", "Powtórka finalisty"}} {
-		t.Run(scenario.mode+"/"+scenario.failure, func(t *testing.T) {
+	for _, scenario := range []struct {
+		mode, failure string
+		reuse bool
+	}{{"Pomiar OC", "", false}, {"Dry Run", "", false}, {"Dry Run", "offset", false},
+		{"Optymalizacja", "", false}, {"Optymalizacja", "Powtórka finalisty", false}, {"Optymalizacja", "", true}} {
+		name := scenario.mode + "/" + scenario.failure
+		if scenario.reuse {
+			name += "historia"
+		}
+		t.Run(name, func(t *testing.T) {
 			files := makeRecoveryFiles(t, "Optymalizacja", false)
 			root := t.TempDir()
 			t.Setenv("LOCALAPPDATA", root)
@@ -224,7 +237,17 @@ func TestSimulatedSession(t *testing.T) {
 			rig.failStage = scenario.failure
 			rig.rejectSlot = scenario.mode == "Dry Run"
 			rig.dryRunOffsetChanged = scenario.mode == "Dry Run" && scenario.failure == "offset"
-			e := Engine{root: root, cfg: Config{Game: game, MSI: files.MSIX, Slot: 1}, update: func(Session) {}, live: func(Sample) {}}
+			rig.reusing = scenario.reuse
+			if scenario.reuse {
+				hash, err := hashPath(filepath.Join(dir, "UserSettings.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				old := Session{Mode: "Dry Run", Game: game, SettingsSHA256: hash, MSISlot: 1}
+				writeHistoricalBaseline(t, filepath.Join(root, "sesje", "poprzedni-1"), old, files.MSI, rig.original)
+				writeHistoricalBaseline(t, filepath.Join(root, "sesje", "poprzedni-2"), old, files.MSI, rig.original)
+			}
+			e := Engine{root: root, cfg: Config{Game: game, MSI: files.MSIX, Slot: 1, ReuseBaseline: scenario.reuse}, update: func(Session) {}, live: func(Sample) {}}
 			err := e.start(context.Background(), scenario.mode)
 			if rig.dryRunOffsetChanged {
 				if err == nil || !strings.Contains(err.Error(), "zmienił się offset V/F") || len(e.session.Runs) != 1 || rig.active ||
@@ -255,7 +278,21 @@ func TestSimulatedSession(t *testing.T) {
 			if err != nil || !e.session.Healthy || rig.active || !exactOriginal(rig.original, rig.current) {
 				t.Fatal("session did not finish cleanly", err)
 			}
-			if scenario.mode != "Dry Run" {
+			if scenario.reuse {
+				for i, run := range e.session.Runs[:3] {
+					if run.Stage != baselineStage || (run.ReusedFrom != "") != (i < 2) || filepath.Dir(run.Path) != e.dir {
+						t.Fatal("expected two recorded runs and one live baseline", run)
+					}
+					if i < 2 {
+						if _, err := os.Stat(filepath.Join(run.Path, "frames.csv")); err != nil {
+							t.Fatal("missing reused frames", err)
+						}
+					}
+				}
+				if e.session.OCCeilingMV != 1025 {
+					t.Fatal("historical data raised the live voltage ceiling")
+				}
+			} else if scenario.mode != "Dry Run" {
 				if first := e.session.Runs[0]; first.Stage != warmupStage || first.Accepted || first.UV != 0 {
 					t.Fatal("the warm-up was not kept separate from the scored runs", first)
 				}

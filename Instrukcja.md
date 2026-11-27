@@ -43,6 +43,12 @@ Jeżeli automatyczny start zaczyna scenę przed pełnym załadowaniem renderowan
 
 Ustawienia grafiki zapisz przed sesją. Aplikacja przerywa pomiar przy zmianie pliku ustawień. Jeśli zobaczysz zmianę renderowania w trakcie sceny, przerwij próbę i rozpocznij nową sesję od początku. Aplikacja czyta plik ustawień i eksporty benchmarku, a stan renderowania podczas sceny wymaga obserwacji na komputerze.
 
+### Optymalizacja z zapisanymi pomiarami OC
+
+Zaznacz **Użyj pomiarów OC z historii** i wybierz **Rozpocznij optymalizację**. Program szuka do dwóch ostatnich zgodnych przebiegów Dry Run lub Zmierz obecny OC. Mogą pochodzić z różnych sesji, w tym z sesji przerwanej po zapisaniu poprawnego wyniku. W nowej sesji są oznaczone jako „Z historii”. Program sprawdza zapisane pliki klatek, wymagane pola telemetrii, ustawienia i tryb uruchamiania gry, pliki MSI oraz oryginalną krzywą i chronione parametry GPU.
+
+Przy dwóch zapisanych pomiarach wykona jeden nowy benchmark OC bez rozgrzewki. Przy jednym wykona dwa. Pułap napięcia zabezpieczający dobór UV pochodzi ze świeżych pomiarów. Jeżeli żaden wynik z historii nie pasuje, program pokaże przyczynę. Odznaczenie opcji pozwala świadomie zacząć od rozgrzewki i trzech nowych przebiegów. Kontrola slotu MSI, próba przywrócenia, benchmarki podczas doboru UV, testy finalistów i końcowa kontrola nadal obowiązują.
+
 ### Liczba klatek i komunikat po Dry Run
 
 Przy proporcji około 2:1 aplikacja dopuszcza do dwóch klatek różnicy od podwojonej liczby wierszy CSV. Przykład z gry to 5941 klatek i 2971 wierszy. Wynik może przejść dopiero po potwierdzeniu zgodności czasu sceny i FPS pomiędzy eksportami. Średni FPS z gry jest pokazywany osobno od FPS, frametime, 1% Low i 0,1% Low obliczonych z CSV.

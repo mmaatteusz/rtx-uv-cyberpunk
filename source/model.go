@@ -47,7 +47,7 @@ type Sample struct {
 
 type Result struct {
 	At                                                                                           time.Time
-	Stage, Error, Path                                                                           string
+	Stage, Error, Path, ReusedFrom                                                               string
 	UV, TargetMHz, FrameCount, FrameCountRatio                                                   int
 	FPS, Low1, Low01, FrametimeSD, FrametimeP99, GameFPS, Seconds                                float64
 	CoreMedian, CoreP10, CoreSpread, VoltageMedian, WattsMedian, TempMax, HotSpotMax, LoadMedian float64
@@ -110,6 +110,27 @@ func readJSON(path string, value any) error {
 		return err
 	}
 	return json.Unmarshal(data, value)
+}
+
+func copyPath(from, to string) error {
+	in, err := os.Open(from)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(to, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, in)
+	if err == nil {
+		err = out.Sync()
+	}
+	closeErr := out.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 func median(values []float64) float64 { return quantile(values, .5) }
@@ -367,9 +388,11 @@ func verifiedWinnerTarget(s Session) (Result, error) {
 	repeats, seconds, target := 0, 0.0, 0
 	ceiling := 0.0
 	for _, r := range s.Runs {
-		if r.UV == 0 && r.Stage == "Punkt odniesienia" && r.Accepted && r.Error == "" {
+		if r.UV == 0 && r.Stage == baselineStage && r.Accepted && r.Error == "" {
 			baseline = append(baseline, r)
-			ceiling = max(ceiling, r.VoltageMax)
+			if r.ReusedFrom == "" {
+				ceiling = max(ceiling, r.VoltageMax)
+			}
 		}
 		if r.UV != s.Winner || (r.Stage != "Powtórka finalisty" && r.Stage != "Wydłużona próba") {
 			continue
@@ -384,7 +407,7 @@ func verifiedWinnerTarget(s Session) (Result, error) {
 			seconds += r.Seconds
 		}
 	}
-	if len(baseline) != 3 || repeats != 5 || seconds < 3600 || s.OCCeilingMV != ceiling {
+	if len(baseline) != baselineCount || repeats != 5 || seconds < 3600 || ceiling <= 0 || s.OCCeilingMV != ceiling {
 		return Result{}, errors.New("brak potwierdzenia bazy OC, pięciu powtórzeń lub pełnej godziny sceny")
 	}
 	return Result{CoreMedian: median([]float64{baseline[0].CoreMedian, baseline[1].CoreMedian, baseline[2].CoreMedian}), VoltageMedian: median([]float64{baseline[0].VoltageMedian, baseline[1].VoltageMedian, baseline[2].VoltageMedian}), TargetMHz: target}, nil

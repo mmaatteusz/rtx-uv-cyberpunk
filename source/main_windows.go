@@ -84,6 +84,7 @@ const (
 	dryPick     = 124
 	importPick  = 125
 	fromMenu    = 126
+	reusePick   = 127
 )
 
 type Desktop struct {
@@ -313,6 +314,7 @@ func (d *Desktop) initControls() {
 		d.control(b.id, "BUTTON", b.text, 0x10000, 0)
 	}
 	d.control(fromMenu, "BUTTON", "Uruchamiaj benchmark z menu gry", 0x10003, 0)
+	d.control(reusePick, "BUTTON", "Użyj pomiarów OC z historii", 0x10003, 0)
 	d.control(pickSession, "COMBOBOX", "", 0x10203|0x200000, 0)
 	d.control(metricPick, "COMBOBOX", "", 0x10203|0x200000, 0)
 	for _, metric := range []string{"Zegar GPU · MHz", "Napięcie rdzenia · mV", "Temperatura GPU · °C", "Hot Spot · °C", "Pobór mocy · W", "Obciążenie GPU · %", "Średni FPS · CSV", "Frametime ostatniego pomiaru · ms"} {
@@ -325,6 +327,7 @@ func (d *Desktop) initControls() {
 	cfg := defaultConfig()
 	_ = readJSON(filepath.Join(d.root, "konfiguracja.json"), &cfg)
 	send(d.controls[fromMenu], 0x00F1, boolArg(cfg.BenchmarkFromMenu), 0) // BM_SETCHECK
+	send(d.controls[reusePick], 0x00F1, boolArg(cfg.ReuseBaseline), 0)
 	setText(d.controls[gameEdit], cfg.Game)
 	setText(d.controls[msiEdit], cfg.MSI)
 	if cfg.Slot > 0 {
@@ -337,7 +340,7 @@ func (d *Desktop) initControls() {
 
 func defaultConfig() Config {
 	program := os.Getenv("ProgramFiles(x86)")
-	cfg := Config{MSI: filepath.Join(program, "MSI Afterburner", "MSIAfterburner.exe")}
+	cfg := Config{MSI: filepath.Join(program, "MSI Afterburner", "MSIAfterburner.exe"), ReuseBaseline: true}
 	for _, path := range []string{
 		filepath.Join(program, "Steam", "steamapps", "common", "Cyberpunk 2077", "bin", "x64", "Cyberpunk2077.exe"),
 		filepath.Join(os.Getenv("ProgramFiles"), "Epic Games", "Cyberpunk2077", "bin", "x64", "Cyberpunk2077.exe"),
@@ -382,6 +385,7 @@ func (d *Desktop) layout() {
 	place(dryPick, 241, 209, 110, 28)
 	place(importPick, 362, 209, 185, 28)
 	place(fromMenu, 20, 242, 300, 24)
+	place(reusePick, 326, 242, 275, 24)
 	plotHeight := (height - 259) / 2
 	d.chart = Rect{d.px(20), d.px(269), d.px(width - 20), d.px(269 + plotHeight - 34)}
 	top := 269 + plotHeight - 23
@@ -430,7 +434,7 @@ func (d *Desktop) browse(control int, basename string) {
 
 func (d *Desktop) toggle(busy bool) {
 	d.busy = busy
-	for _, id := range []int{gameEdit, msiEdit, slotEdit, browseGame, browseMSI, observe, optimize, restore, pickSession, dryPick, fromMenu} {
+	for _, id := range []int{gameEdit, msiEdit, slotEdit, browseGame, browseMSI, observe, optimize, restore, pickSession, dryPick, fromMenu, reusePick} {
 		user32.NewProc("EnableWindow").Call(d.controls[id], boolArg(!busy))
 	}
 	user32.NewProc("EnableWindow").Call(d.controls[stop], boolArg(busy && d.cancel != nil))
@@ -469,7 +473,12 @@ func (d *Desktop) command(id, code int) {
 	case observe:
 		d.begin("Pomiar OC")
 	case optimize:
-		if popup(d.window, "Wczytaj zapisany oryginalny slot MSI i pozostaw MSI Afterburner uruchomiony. Zakończ działanie innych programów strojących GPU i nie zmieniaj profilu MSI podczas sesji.\r\n\r\nPo pomiarze OC program wykona kontrolowaną próbę zapisu i odzyskania krzywej. Rozpocząć?", 0x124) == 6 {
+		message := "Wczytaj zapisany oryginalny slot MSI i pozostaw MSI Afterburner uruchomiony. Zakończ działanie innych programów strojących GPU i nie zmieniaj profilu MSI podczas sesji."
+		if send(d.controls[reusePick], 0x00F0, 0, 0) == 1 {
+			message += "\r\n\r\nProgram wykorzysta do dwóch zgodnych pomiarów z historii i uzupełni bazę OC do trzech. Jeśli historia nie pasuje, zatrzyma sesję."
+		}
+		message += "\r\n\r\nPo pomiarze OC program wykona kontrolowaną próbę zapisu i odzyskania krzywej. Rozpocząć?"
+		if popup(d.window, message, 0x124) == 6 {
 			d.begin("Optymalizacja")
 		}
 	case stop:
@@ -512,6 +521,7 @@ func (d *Desktop) begin(mode string) {
 		MSI:               strings.Trim(strings.TrimSpace(windowText(d.controls[msiEdit])), "\""),
 		Slot:              slot,
 		BenchmarkFromMenu: send(d.controls[fromMenu], 0x00F0, 0, 0) == 1, // BM_GETCHECK
+		ReuseBaseline:     send(d.controls[reusePick], 0x00F0, 0, 0) == 1,
 	}
 	if err := writeJSON(filepath.Join(d.root, "konfiguracja.json"), cfg); err != nil {
 		popup(d.window, err.Error(), 0x10)
@@ -751,6 +761,9 @@ func (d *Desktop) details() {
 				}())
 			if p.Error != "" {
 				fmt.Fprintf(&list, "    %s\r\n", p.Error)
+			}
+			if p.ReusedFrom != "" {
+				fmt.Fprintf(&list, "    Z historii · %s\r\n", p.ReusedFrom)
 			}
 		}
 	}
