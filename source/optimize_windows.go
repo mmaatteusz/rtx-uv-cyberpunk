@@ -37,6 +37,7 @@ type Engine struct {
 	expected                                 []Point
 	lastGuard, watchSince                    time.Time
 	baselineVoltage, baselineVRAM, startTemp float64
+	frameCountRatio                          int
 }
 
 func (e *Engine) save(status string) error {
@@ -361,11 +362,15 @@ func (e *Engine) run(ctx context.Context, stage string, uv, target int) (Result,
 	if err == nil {
 		err = e.runner.run(ctx, &result, e.session.OCCeilingMV)
 	}
-	if err == nil && len(e.session.Runs) > 0 && result.FrameCountRatio != e.session.Runs[0].FrameCountRatio {
-		err = errors.New("zmieniła się proporcja klatek między podsumowaniem gry a CSV. Wyniki sesji nie są porównywalne")
-	}
 	if err == nil {
 		err = e.guard(true)
+	}
+	if err == nil && stage != warmupStage {
+		if e.frameCountRatio == 0 {
+			e.frameCountRatio = result.FrameCountRatio
+		} else if result.FrameCountRatio != e.frameCountRatio {
+			err = errors.New("zmieniła się proporcja klatek między podsumowaniem gry a CSV. Wyniki sesji nie są porównywalne")
+		}
 	}
 	if err != nil {
 		result.Error = err.Error()
@@ -376,7 +381,7 @@ func (e *Engine) run(ctx context.Context, stage string, uv, target int) (Result,
 			result.Error = err.Error()
 		}
 	}
-	result.Accepted = err == nil && (result.UV == 0 || e.acceptsTrial(result))
+	result.Accepted = err == nil && stage != warmupStage && (result.UV == 0 || e.acceptsTrial(result))
 	e.session.Runs = append(e.session.Runs, result)
 	if saveErr := e.save(e.session.Status); saveErr != nil {
 		return result, errors.Join(err, saveErr)
@@ -465,7 +470,17 @@ func (e *Engine) dryRun(ctx context.Context) error {
 	if err := verifyOriginalMSISlot(e.msi, e.base, e.cfg.Slot); err != nil {
 		return err
 	}
-	plan, err := newVoltagePlan(e.base.Points, e.baselineVoltage, e.criteria.Core.Center)
+	e.recovery = Recovery{MSIX: e.cfg.MSI, SessionDir: e.dir, Slot: e.cfg.Slot, Before: e.base, MSI: e.msi, ReadOnly: true}
+	if err := arm(e.root, &e.recovery); err != nil {
+		return err
+	}
+	e.armed = true
+	e.watchSince = time.Now()
+	run, err := e.run(ctx, "Dry Run · test odczytu", 0, 0)
+	if err != nil {
+		return err
+	}
+	plan, err := newVoltagePlan(e.base.Points, run.VoltageMedian, run.CoreMedian)
 	if err != nil {
 		return err
 	}
@@ -488,21 +503,7 @@ func (e *Engine) dryRun(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err = writeJSON(filepath.Join(e.dir, "plan-dry-run.json"), trials); err != nil {
-		return err
-	}
-	e.recovery = Recovery{MSIX: e.cfg.MSI, SessionDir: e.dir, Slot: e.cfg.Slot, Before: e.base, MSI: e.msi, ReadOnly: true}
-	if err := arm(e.root, &e.recovery); err != nil {
-		return err
-	}
-	e.armed = true
-	e.watchSince = time.Now()
-	for _, stage := range []string{"Dry Run · symulacja kroku 25 mV", "Dry Run · symulacja kroku 12,5 mV", "Dry Run · kontrola OC"} {
-		if err := e.controlOC(ctx, stage); err != nil {
-			return err
-		}
-	}
-	return nil
+	return writeJSON(filepath.Join(e.dir, "plan-dry-run.json"), trials)
 }
 
 func (e *Engine) candidatePoints(plan voltagePlan, idx int) ([]Point, error) {
@@ -818,6 +819,12 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 	e.runner = Runner{game: e.cfg.Game, gameResults: filepath.Join(doc, "CD Projekt Red", "Cyberpunk 2077", "benchmarkResults"),
 		gameSettings: gameConfig, settingsHash: settingsHash, folder: e.dir, gpu: e.gpu, fullSensors: mode == "Optymalizacja",
 		fromMenu: e.cfg.BenchmarkFromMenu, mark: func() error { return e.guard(false) }, live: e.live}
+	if mode == "Dry Run" {
+		return e.dryRun(ctx)
+	}
+	if _, err = e.run(ctx, warmupStage, 0, 0); err != nil {
+		return err
+	}
 	var baseRuns []Result
 	for i := 0; i < 3; i++ {
 		run, err := e.run(ctx, "Punkt odniesienia", 0, 0)
@@ -836,9 +843,6 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 	e.baselineVRAM = median([]float64{baseRuns[0].VRAMMHz, baseRuns[1].VRAMMHz, baseRuns[2].VRAMMHz})
 	if err = e.updateRank(ocRank); err != nil {
 		return err
-	}
-	if mode == "Dry Run" {
-		return e.dryRun(ctx)
 	}
 	if mode != "Optymalizacja" {
 		return nil

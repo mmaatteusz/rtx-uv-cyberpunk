@@ -231,14 +231,22 @@ func TestSimulatedSession(t *testing.T) {
 			if err != nil || !e.session.Healthy || rig.active || !exactOriginal(rig.original, rig.current) {
 				t.Fatal("session did not finish cleanly", err)
 			}
+			if scenario.mode != "Dry Run" {
+				if first := e.session.Runs[0]; first.Stage != warmupStage || first.Accepted || first.UV != 0 {
+					t.Fatal("the warm-up was not kept separate from the scored runs", first)
+				}
+			}
 			switch scenario.mode {
 			case "Pomiar OC":
-				if len(e.session.Runs) != 3 || rig.changes != 0 {
+				if len(e.session.Runs) != 4 || rig.changes != 0 {
 					t.Fatal("incorrect baseline")
 				}
 			case "Dry Run":
-				if len(e.session.Runs) != 6 || rig.changes != 0 || rig.restored {
+				if len(e.session.Runs) != 1 || rig.changes != 0 || rig.restored {
 					t.Fatal("dry run wrote to GPU or reported wrong count")
+				}
+				if _, err := os.Stat(filepath.Join(e.dir, "plan-dry-run.json")); err != nil {
+					t.Fatal("dry run did not run its voltage simulation", err)
 				}
 			case "Optymalizacja":
 				if !rig.restored || rig.finals < 5 || rig.stress < 60 || rig.controls < 5 || rig.changes < 3 || e.session.Winner == 0 {

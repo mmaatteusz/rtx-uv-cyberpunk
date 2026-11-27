@@ -109,6 +109,26 @@ func TestTelemetryEvaluatesSceneAfterSlowLoading(t *testing.T) {
 	}
 }
 
+func TestBenchmarkStartTemperatureUsesWarmedIdleTemperature(t *testing.T) {
+	warmed := []float64{42, 41, 41, 41, 40}
+	target, ready := benchmarkStartTemperature(warmed, 0)
+	if !ready || target != 41 {
+		t.Fatalf("cel po rozgrzewce %.1f °C, gotowe %t", target, ready)
+	}
+	if _, ready = benchmarkStartTemperature(warmed, 32); ready {
+		t.Fatal("temperatura rozgrzanej karty została porównana z zimną bazą")
+	}
+	if _, ready = benchmarkStartTemperature([]float64{41, 40, 41, 42, 41}, target); !ready {
+		t.Fatal("odrzucono pomiar mieszczący się w zakresie")
+	}
+	if _, ready = benchmarkStartTemperature([]float64{43, 43, 44, 43, 43}, target); ready {
+		t.Fatal("zaakceptowano próbkę powyżej ustalonego celu")
+	}
+	if _, ready = benchmarkStartTemperature(warmed[:4], 0); ready {
+		t.Fatal("ustalono cel na zbyt małej próbce")
+	}
+}
+
 func TestFramesRequireIndependentDuration(t *testing.T) {
 	data := "FrameTimeMs\n" + strings.Repeat("10\n", 5000)
 	if _, err := computeFrames(strings.NewReader(data), reportedFrames{FPS: 100, Count: 5000}, &Result{}); err == nil {

@@ -6,10 +6,27 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
+
+const warmupStage = "Rozgrzewka"
+
+func benchmarkStartTemperature(samples []float64, target float64) (float64, bool) {
+	if len(samples) < 5 {
+		return target, false
+	}
+	low, high := slices.Min(samples), slices.Max(samples)
+	if high-low > 2 || (target != 0 && (low < target-2 || high > target+2)) {
+		return target, false
+	}
+	if target == 0 {
+		target = median(samples)
+	}
+	return target, true
+}
 
 func records(folder string) ([]string, error) {
 	items, err := os.ReadDir(folder)
