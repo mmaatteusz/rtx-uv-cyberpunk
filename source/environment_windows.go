@@ -62,20 +62,20 @@ func (e *Engine) waitComparable(ctx context.Context, r *Result) error {
 	defer timeout.Stop()
 	lastStatus := time.Time{}
 	var recentTemp []float64
-	var settleUntil time.Time
-	if r.Stage != warmupStage && e.startTemp == 0 && e.session.Mode != "Dry Run" {
-		settleUntil = time.Now().Add(45 * time.Second)
+	maxStartTemp := float64(maxBenchmarkStartTempC)
+	if e.session.Mode == "Dry Run" {
+		maxStartTemp = 0
 	}
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timeout.C:
-			if e.startTemp == 0 {
+			if maxStartTemp == 0 {
 				return errors.New("przez 7 min nie uzyskano stabilnej temperatury i bezczynności CPU oraz GPU")
 			}
-			return fmt.Errorf("przez 7 min nie uzyskano stabilnych warunków startowych wokół %.1f °C (GPU i CPU w bezczynności)", e.startTemp)
-		case at := <-tick.C:
+			return fmt.Errorf("przez 7 min nie uzyskano stabilnych warunków startowych (GPU do %.0f °C, CPU i GPU w bezczynności)", maxStartTemp)
+		case <-tick.C:
 			if err := e.guard(false); err != nil {
 				return err
 			}
@@ -105,16 +105,14 @@ func (e *Engine) waitComparable(ctx context.Context, r *Result) error {
 			}
 			if time.Since(lastStatus) > 4*time.Second {
 				message := fmt.Sprintf("%s · oczekiwanie na bezczynność · %.0f °C · CPU %.0f%% · GPU %.0f%%", r.Stage, temp, cpu, load)
-				if e.startTemp > 0 {
-					message += fmt.Sprintf(" · cel %.1f ±2 °C", e.startTemp)
-				} else if !settleUntil.IsZero() {
-					message += " · ustalanie temperatury po rozgrzewce"
+				if maxStartTemp > 0 {
+					message += fmt.Sprintf(" · start przy ≤%.0f °C", maxStartTemp)
 				}
 				e.session.Status = message
 				e.update(e.session)
 				lastStatus = time.Now()
 			}
-			if load > 12 || cpu > 12 || at.Before(settleUntil) {
+			if load > 12 || cpu > 12 {
 				recentTemp = nil
 				continue
 			}
@@ -122,12 +120,8 @@ func (e *Engine) waitComparable(ctx context.Context, r *Result) error {
 			if len(recentTemp) > 5 {
 				recentTemp = recentTemp[1:]
 			}
-			target, ok := benchmarkStartTemperature(recentTemp, e.startTemp)
-			if !ok {
+			if !stableBenchmarkTemperature(recentTemp, maxStartTemp) {
 				continue
-			}
-			if r.Stage != warmupStage {
-				e.startTemp = target
 			}
 			r.StartTempC, r.StartCPUPct, r.StartGPUPct = temp, cpu, load
 			return nil

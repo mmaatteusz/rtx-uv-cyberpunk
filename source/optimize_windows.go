@@ -21,23 +21,23 @@ type Config struct {
 }
 
 type Engine struct {
-	ctx                                      context.Context
-	root, dir                                string
-	cfg                                      Config
-	gpu                                      *GPU
-	base                                     Snapshot
-	msi                                      MSIBackup
-	recovery                                 Recovery
-	armed                                    bool
-	session                                  Session
-	criteria                                 Criteria
-	runner                                   Runner
-	update                                   func(Session)
-	live                                     func(Sample)
-	expected                                 []Point
-	lastGuard, watchSince                    time.Time
-	baselineVoltage, baselineVRAM, startTemp float64
-	frameCountRatio                          int
+	ctx                           context.Context
+	root, dir                     string
+	cfg                           Config
+	gpu                           *GPU
+	base                          Snapshot
+	msi                           MSIBackup
+	recovery                      Recovery
+	armed                         bool
+	session                       Session
+	criteria                      Criteria
+	runner                        Runner
+	update                        func(Session)
+	live                          func(Sample)
+	expected                      []Point
+	lastGuard, watchSince         time.Time
+	baselineVoltage, baselineVRAM float64
+	frameCountRatio               int
 }
 
 func (e *Engine) save(status string) error {

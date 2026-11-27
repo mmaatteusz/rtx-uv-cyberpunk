@@ -23,7 +23,7 @@ Eksperymentalne narzędzie dla **Windows 11 x64 i NVIDIA GeForce RTX 4070 SUPER 
 
 ## Dobór krzywej i ocena
 
-Program odnosi napięcia do zmierzonego obciążenia. Zaczyna od kroku około 25 mV, a przy pierwszej regresji zawęża przedział z krokiem około 12,5 mV i sąsiednimi punktami udostępnionymi przez kartę. Każdy przebieg zostawia osobny eksport i próbki telemetrii. Ocena sprawdza między innymi średnie FPS, 1% Low, 0,1% Low, P99 frametime, zegar, napięcie, pobór mocy i temperaturę. Finalista musi zaliczyć pięć powtórek oraz co najmniej 60 minut sumarycznego czasu powtarzanej sceny przed potwierdzeniem wyniku. Remis pozostawia pierwotny OC.
+Program odnosi napięcia do zmierzonego obciążenia. Zaczyna od kroku około 25 mV, a przy pierwszej regresji zawęża przedział z krokiem około 12,5 mV i sąsiednimi punktami udostępnionymi przez kartę. Pomiar OC i optymalizacja zaczynają przebieg przy stabilnej temperaturze GPU do 45°C. Każdy przebieg zostawia osobny eksport i próbki telemetrii. Ocena sprawdza między innymi średnie FPS, 1% Low, 0,1% Low, P99 frametime, zegar, napięcie, pobór mocy i temperaturę. Finalista musi zaliczyć pięć powtórek oraz co najmniej 60 minut sumarycznego czasu powtarzanej sceny przed potwierdzeniem wyniku. Remis pozostawia pierwotny OC.
 
 ## Odzyskiwanie
 

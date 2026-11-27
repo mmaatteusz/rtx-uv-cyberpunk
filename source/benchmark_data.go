@@ -13,19 +13,14 @@ import (
 )
 
 const warmupStage = "Rozgrzewka"
+const maxBenchmarkStartTempC = 45
 
-func benchmarkStartTemperature(samples []float64, target float64) (float64, bool) {
+func stableBenchmarkTemperature(samples []float64, maxTemp float64) bool {
 	if len(samples) < 5 {
-		return target, false
+		return false
 	}
 	low, high := slices.Min(samples), slices.Max(samples)
-	if high-low > 2 || (target != 0 && (low < target-2 || high > target+2)) {
-		return target, false
-	}
-	if target == 0 {
-		target = median(samples)
-	}
-	return target, true
+	return high-low <= 2 && (maxTemp == 0 || high <= maxTemp)
 }
 
 func records(folder string) ([]string, error) {

@@ -109,23 +109,23 @@ func TestTelemetryEvaluatesSceneAfterSlowLoading(t *testing.T) {
 	}
 }
 
-func TestBenchmarkStartTemperatureUsesWarmedIdleTemperature(t *testing.T) {
-	warmed := []float64{42, 41, 41, 41, 40}
-	target, ready := benchmarkStartTemperature(warmed, 0)
-	if !ready || target != 41 {
-		t.Fatalf("cel po rozgrzewce %.1f °C, gotowe %t", target, ready)
+func TestBenchmarkStartTemperatureAllowsStableReadingsAtOrBelow45(t *testing.T) {
+	for _, trial := range []struct {
+		samples []float64
+		ready   bool
+	}{
+		{[]float64{42, 41, 41, 41, 40}, true},
+		{[]float64{45, 45, 45, 45, 45}, true},
+		{[]float64{46, 45, 45, 45, 45}, false},
+		{[]float64{45, 44, 43, 42, 41}, false},
+		{[]float64{41, 41, 41, 41}, false},
+	} {
+		if ready := stableBenchmarkTemperature(trial.samples, maxBenchmarkStartTempC); ready != trial.ready {
+			t.Errorf("próbki %v: gotowość %t, oczekiwano %t", trial.samples, ready, trial.ready)
+		}
 	}
-	if _, ready = benchmarkStartTemperature(warmed, 32); ready {
-		t.Fatal("temperatura rozgrzanej karty została porównana z zimną bazą")
-	}
-	if _, ready = benchmarkStartTemperature([]float64{41, 40, 41, 42, 41}, target); !ready {
-		t.Fatal("odrzucono pomiar mieszczący się w zakresie")
-	}
-	if _, ready = benchmarkStartTemperature([]float64{43, 43, 44, 43, 43}, target); ready {
-		t.Fatal("zaakceptowano próbkę powyżej ustalonego celu")
-	}
-	if _, ready = benchmarkStartTemperature(warmed[:4], 0); ready {
-		t.Fatal("ustalono cel na zbyt małej próbce")
+	if !stableBenchmarkTemperature([]float64{47, 47, 48, 47, 47}, 0) {
+		t.Fatal("Dry Run nie powinien czekać na próg 45°C")
 	}
 }
 
