@@ -48,7 +48,7 @@ type Sample struct {
 type Result struct {
 	At                                                                                           time.Time
 	Stage, Error, Path                                                                           string
-	UV, TargetMHz, FrameCount                                                                    int
+	UV, TargetMHz, FrameCount, FrameCountRatio                                                   int
 	FPS, Low1, Low01, FrametimeSD, FrametimeP99, GameFPS, Seconds                                float64
 	CoreMedian, CoreP10, CoreSpread, VoltageMedian, WattsMedian, TempMax, HotSpotMax, LoadMedian float64
 	VRAMMHz, StartTempC, StartCPUPct, StartGPUPct, VoltageMax                                    float64
@@ -67,6 +67,7 @@ type Session struct {
 	Started, Updated                   time.Time
 	Mode, Game, Status, SettingsSHA256 string
 	Healthy                            bool
+	BenchmarkFromMenu                  bool
 	Winner, MSISlot                    int
 	OCCeilingMV                        float64
 	Runs                               []Result
@@ -181,8 +182,15 @@ func computeFrames(source io.Reader, summary reportedFrames, result *Result) ([]
 	if err != nil || len(rows) < 501 || len(rows[0]) == 0 {
 		return nil, errors.New("brak kompletnego pliku klatek gry")
 	}
-	if summary.FPS < 8 || summary.FPS > 1500 || summary.Count < 500 || math.Abs(float64(len(rows)-1-summary.Count)) > math.Max(3, float64(summary.Count)*.015) {
-		return nil, fmt.Errorf("niespójne podsumowanie gry (%.2f FPS, %d klatek, %d wierszy)", summary.FPS, summary.Count, len(rows)-1)
+	rowCount := len(rows) - 1
+	ratio := 1
+	// With frame generation, the summary can count two frames for each
+	// CSV row. Verify the ratio against both clocks before accepting it.
+	if summary.Count == 2*rowCount {
+		ratio = 2
+	}
+	if summary.FPS < 8 || summary.FPS > 1500 || summary.Count < 500 || math.Abs(float64(ratio*rowCount-summary.Count)) > math.Max(3, float64(summary.Count)*.015) {
+		return nil, fmt.Errorf("niespójne podsumowanie gry (%.2f FPS, %d klatek, %d wierszy)", summary.FPS, summary.Count, rowCount)
 	}
 	var columns []frameColumn
 	for ix, header := range rows[0] {
@@ -252,17 +260,22 @@ func computeFrames(source io.Reader, summary reportedFrames, result *Result) ([]
 		}
 		average := mean(frames)
 		fps, seconds := 1000/average, average*float64(len(frames))/1000
-		if seconds < 30 || seconds > 130 || math.Abs(fps/summary.FPS-1) > .025 {
+		if seconds < 30 || seconds > 130 || math.Abs(fps*float64(ratio)/summary.FPS-1) > .025 {
 			continue
 		}
 		if summary.Time > 0 {
 			matchesTime := false
 			for _, scale := range []float64{1, .001, .000001} {
 				t := summary.Time * scale
-				if t >= 30 && t <= 130 && math.Abs(seconds-t) <= math.Max(2.5, t*.04) {
-					matchesTime = true
-					break
+				if t < 30 || t > 130 || math.Abs(seconds-t) > math.Max(2.5, t*.04) {
+					continue
 				}
+				if ratio == 2 && (math.Abs(seconds-t) > math.Max(.75, t*.02) ||
+					math.Abs(float64(summary.Count)/summary.FPS-t) > math.Max(.75, t*.02)) {
+					continue
+				}
+				matchesTime = true
+				break
 			}
 			if !matchesTime {
 				continue
@@ -280,6 +293,7 @@ func computeFrames(source io.Reader, summary reportedFrames, result *Result) ([]
 		}
 		result.FPS, result.Low1, result.Low01 = fps, tail(.01), tail(.001)
 		result.Seconds, result.FrameCount, result.GameFPS = seconds, len(frames), summary.FPS
+		result.FrameCountRatio = ratio
 		result.FrametimeSD = math.Sqrt(variance / float64(len(frames)))
 		result.FrametimeP99 = quantile(frames, .99)
 		return frames, nil

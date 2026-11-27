@@ -13,7 +13,7 @@ import (
 type Runner struct {
 	game, gameResults, gameSettings, settingsHash, folder string
 	gpu                                                   *GPU
-	fullSensors                                           bool
+	fullSensors, fromMenu                                 bool
 	mark                                                  func() error
 	live                                                  func(Sample)
 }
@@ -59,7 +59,11 @@ func (b Runner) run(ctx context.Context, r *Result, ceilingMV float64) (retErr e
 		return err
 	}
 	defer func() { job.close() }()
-	command := exec.CommandContext(testCtx, b.game, "-benchmark")
+	var args []string
+	if !b.fromMenu {
+		args = []string{"-benchmark"}
+	}
+	command := exec.CommandContext(testCtx, b.game, args...)
 	command.Dir = filepath.Dir(b.game)
 	command.Stdout, command.Stderr = logOut, logOut
 	started := time.Now()

@@ -83,6 +83,7 @@ const (
 	previewPick = 123
 	dryPick     = 124
 	importPick  = 125
+	fromMenu    = 126
 )
 
 type Desktop struct {
@@ -311,9 +312,10 @@ func (d *Desktop) initControls() {
 	} {
 		d.control(b.id, "BUTTON", b.text, 0x10000, 0)
 	}
+	d.control(fromMenu, "BUTTON", "Uruchamiaj benchmark z menu gry", 0x10003, 0)
 	d.control(pickSession, "COMBOBOX", "", 0x10203|0x200000, 0)
 	d.control(metricPick, "COMBOBOX", "", 0x10203|0x200000, 0)
-	for _, metric := range []string{"Zegar GPU · MHz", "Napięcie rdzenia · mV", "Temperatura GPU · °C", "Hot Spot · °C", "Pobór mocy · W", "Obciążenie GPU · %", "FPS według benchmarków", "Frametime ostatniego pomiaru · ms"} {
+	for _, metric := range []string{"Zegar GPU · MHz", "Napięcie rdzenia · mV", "Temperatura GPU · °C", "Hot Spot · °C", "Pobór mocy · W", "Obciążenie GPU · %", "Średni FPS · CSV", "Frametime ostatniego pomiaru · ms"} {
 		comboAdd(d.controls[metricPick], metric)
 	}
 	send(d.controls[metricPick], 0x14e, 0, 0)
@@ -322,6 +324,7 @@ func (d *Desktop) initControls() {
 	send(d.controls[207], 0xC5, 2000000, 0)
 	cfg := defaultConfig()
 	_ = readJSON(filepath.Join(d.root, "konfiguracja.json"), &cfg)
+	send(d.controls[fromMenu], 0x00F1, boolArg(cfg.BenchmarkFromMenu), 0) // BM_SETCHECK
 	setText(d.controls[gameEdit], cfg.Game)
 	setText(d.controls[msiEdit], cfg.MSI)
 	if cfg.Slot > 0 {
@@ -378,9 +381,10 @@ func (d *Desktop) layout() {
 	place(previewPick, 20, 209, 210, 28)
 	place(dryPick, 241, 209, 110, 28)
 	place(importPick, 362, 209, 185, 28)
-	plotHeight := (height - 232) / 2
-	d.chart = Rect{d.px(20), d.px(242), d.px(width - 20), d.px(242 + plotHeight - 34)}
-	top := 242 + plotHeight - 23
+	place(fromMenu, 20, 242, 300, 24)
+	plotHeight := (height - 259) / 2
+	d.chart = Rect{d.px(20), d.px(269), d.px(width - 20), d.px(269 + plotHeight - 34)}
+	top := 269 + plotHeight - 23
 	place(206, 20, top+7, 105, 22)
 	place(pickSession, 128, top+3, width-584, 265)
 	place(historyPage, width-445, top+2, 108, 27)
@@ -426,7 +430,7 @@ func (d *Desktop) browse(control int, basename string) {
 
 func (d *Desktop) toggle(busy bool) {
 	d.busy = busy
-	for _, id := range []int{gameEdit, msiEdit, slotEdit, browseGame, browseMSI, observe, optimize, restore, pickSession, dryPick} {
+	for _, id := range []int{gameEdit, msiEdit, slotEdit, browseGame, browseMSI, observe, optimize, restore, pickSession, dryPick, fromMenu} {
 		user32.NewProc("EnableWindow").Call(d.controls[id], boolArg(!busy))
 	}
 	user32.NewProc("EnableWindow").Call(d.controls[stop], boolArg(busy && d.cancel != nil))
@@ -503,8 +507,12 @@ func (d *Desktop) begin(mode string) {
 		return
 	}
 	slot, _ := strconv.Atoi(windowText(d.controls[slotEdit]))
-	cfg := Config{strings.Trim(strings.TrimSpace(windowText(d.controls[gameEdit])), "\""),
-		strings.Trim(strings.TrimSpace(windowText(d.controls[msiEdit])), "\""), slot}
+	cfg := Config{
+		Game:              strings.Trim(strings.TrimSpace(windowText(d.controls[gameEdit])), "\""),
+		MSI:               strings.Trim(strings.TrimSpace(windowText(d.controls[msiEdit])), "\""),
+		Slot:              slot,
+		BenchmarkFromMenu: send(d.controls[fromMenu], 0x00F0, 0, 0) == 1, // BM_GETCHECK
+	}
 	if err := writeJSON(filepath.Join(d.root, "konfiguracja.json"), cfg); err != nil {
 		popup(d.window, err.Error(), 0x10)
 		return
@@ -681,7 +689,11 @@ func (d *Desktop) reloadSessions(preferred string) {
 			selected = len(d.sessions)
 		}
 		d.sessions = append(d.sessions, dir)
-		comboAdd(d.controls[pickSession], s.Started.Format("02.01.2006 15:04:05")+" · "+s.Mode)
+		label := s.Started.Format("02.01.2006 15:04:05") + " · " + s.Mode
+		if s.BenchmarkFromMenu {
+			label += " · menu gry"
+		}
+		comboAdd(d.controls[pickSession], label)
 	}
 	if len(d.sessions) > 0 {
 		send(d.controls[pickSession], 0x14e, uintptr(selected), 0)
@@ -704,7 +716,7 @@ func (d *Desktop) loadSession(dir string) {
 func (d *Desktop) details() {
 	var list strings.Builder
 	if d.viewRank {
-		fmt.Fprintf(&list, "%-16s %5s %8s %8s %8s %9s %8s %8s   %s\r\n", "Profil", "Próby", "Śr. FPS", "1% Low", "0,1% Low", "Zegar MHz", "Wah. MHz", "GPU mV", "Status")
+		fmt.Fprintf(&list, "%-16s %5s %8s %8s %8s %9s %8s %8s   %s\r\n", "Profil", "Próby", "FPS CSV", "1% Low", "0,1% Low", "Zegar MHz", "Wah. MHz", "GPU mV", "Status")
 		ranks := slices.Clone(d.session.Ranking)
 		sort.SliceStable(ranks, func(i, j int) bool {
 			if ranks[i].UV == d.session.Winner && d.session.Winner > 0 {
@@ -726,11 +738,11 @@ func (d *Desktop) details() {
 			fmt.Fprintf(&list, "%-16s %5d %8.2f %8.2f %8.2f %9.0f %8.0f %8.1f   %s\r\n", voltageLabel(p.UV), p.Count, p.FPS, p.Low1, p.Low01, p.CoreMHz, p.ClockSpread, p.Volts, note)
 		}
 	} else {
-		fmt.Fprintf(&list, "%-3s %-18s %-15s %8s %8s %8s %8s %8s %7s %8s %8s %6s %7s\r\n",
-			"Nr", "Etap", "Profil", "Śr. FPS", "1% Low", "0,1% Low", "P99 ms", "SD ms", "MHz", "GPU mV", "Wat", "GPU °C", "HS °C")
+		fmt.Fprintf(&list, "%-3s %-18s %-15s %8s %8s %8s %8s %8s %8s %7s %8s %8s %6s %7s\r\n",
+			"Nr", "Etap", "Profil", "FPS CSV", "FPS gry", "1% Low", "0,1% Low", "P99 ms", "SD ms", "MHz", "GPU mV", "Wat", "GPU °C", "HS °C")
 		for i, p := range d.session.Runs {
-			fmt.Fprintf(&list, "%-3d %-18s %-15s %8.2f %8.2f %8.2f %8.2f %8.2f %7.0f %8.1f %8.1f %6.0f %7s\r\n",
-				i+1, p.Stage, voltageLabel(p.UV), p.FPS, p.Low1, p.Low01, p.FrametimeP99, p.FrametimeSD, p.CoreMedian, p.VoltageMedian, p.WattsMedian, p.TempMax,
+			fmt.Fprintf(&list, "%-3d %-18s %-15s %8.2f %8.2f %8.2f %8.2f %8.2f %8.2f %7.0f %8.1f %8.1f %6.0f %7s\r\n",
+				i+1, p.Stage, voltageLabel(p.UV), p.FPS, p.GameFPS, p.Low1, p.Low01, p.FrametimeP99, p.FrametimeSD, p.CoreMedian, p.VoltageMedian, p.WattsMedian, p.TempMax,
 				func() string {
 					if p.HotSpotMax == 0 {
 						return "—"

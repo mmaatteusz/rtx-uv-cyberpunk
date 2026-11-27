@@ -54,7 +54,7 @@ func (g *GPU) apply(ctx context.Context, base Snapshot, target []Point, restore 
 type Runner struct {
 	game, gameResults, gameSettings, settingsHash, folder string
 	gpu                                                   *GPU
-	fullSensors                                           bool
+	fullSensors, fromMenu                                 bool
 	mark                                                  func() error
 	live                                                  func(Sample)
 }
@@ -207,7 +207,7 @@ func TestSimulatedSession(t *testing.T) {
 			rig.stress = 0
 			rig.controls = 0
 			rig.failStage = scenario.failure
-			e := Engine{root: root, cfg: Config{game, files.MSIX, 1}, update: func(Session) {}, live: func(Sample) {}}
+			e := Engine{root: root, cfg: Config{Game: game, MSI: files.MSIX, Slot: 1}, update: func(Session) {}, live: func(Sample) {}}
 			err := e.start(context.Background(), scenario.mode)
 			if scenario.failure != "" {
 				if err == nil || !rig.reset || !rig.active || e.session.Healthy || e.session.Winner != 0 {

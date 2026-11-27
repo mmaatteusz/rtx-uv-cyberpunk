@@ -15,8 +15,9 @@ import (
 )
 
 type Config struct {
-	Game, MSI string
-	Slot      int
+	Game, MSI         string
+	Slot              int
+	BenchmarkFromMenu bool
 }
 
 type Engine struct {
@@ -348,13 +349,20 @@ func (e *Engine) run(ctx context.Context, stage string, uv, target int) (Result,
 		err = e.waitComparable(ctx, &result)
 	}
 	if err == nil {
-		err = e.save(fmt.Sprintf("%s · próba %d · %s · start %.0f °C", stage, len(e.session.Runs)+1, voltageLabel(uv), result.StartTempC))
+		status := fmt.Sprintf("%s · próba %d · %s · start %.0f °C", stage, len(e.session.Runs)+1, voltageLabel(uv), result.StartTempC)
+		if e.cfg.BenchmarkFromMenu {
+			status = fmt.Sprintf("Próba %d · Grafika → Uruchom benchmark. Po wyświetleniu wyniku zamknij grę.", len(e.session.Runs)+1)
+		}
+		err = e.save(status)
 	}
 	if err == nil {
 		err = e.guard(true)
 	}
 	if err == nil {
 		err = e.runner.run(ctx, &result, e.session.OCCeilingMV)
+	}
+	if err == nil && len(e.session.Runs) > 0 && result.FrameCountRatio != e.session.Runs[0].FrameCountRatio {
+		err = errors.New("zmieniła się proporcja klatek między podsumowaniem gry a CSV. Wyniki sesji nie są porównywalne")
 	}
 	if err == nil {
 		err = e.guard(true)
@@ -727,7 +735,7 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 	if err != nil {
 		return err
 	}
-	e.session = Session{Started: time.Now(), Mode: mode, Game: e.cfg.Game, MSISlot: e.cfg.Slot}
+	e.session = Session{Started: time.Now(), Mode: mode, Game: e.cfg.Game, MSISlot: e.cfg.Slot, BenchmarkFromMenu: e.cfg.BenchmarkFromMenu}
 	if err = e.save("Kopiowanie konfiguracji MSI i odczyt V/F"); err != nil {
 		return err
 	}
@@ -808,7 +816,8 @@ func (e *Engine) start(ctx context.Context, mode string) (retErr error) {
 	}
 	e.session.SettingsSHA256 = settingsHash
 	e.runner = Runner{game: e.cfg.Game, gameResults: filepath.Join(doc, "CD Projekt Red", "Cyberpunk 2077", "benchmarkResults"),
-		gameSettings: gameConfig, settingsHash: settingsHash, folder: e.dir, gpu: e.gpu, fullSensors: mode == "Optymalizacja", mark: func() error { return e.guard(false) }, live: e.live}
+		gameSettings: gameConfig, settingsHash: settingsHash, folder: e.dir, gpu: e.gpu, fullSensors: mode == "Optymalizacja",
+		fromMenu: e.cfg.BenchmarkFromMenu, mark: func() error { return e.guard(false) }, live: e.live}
 	var baseRuns []Result
 	for i := 0; i < 3; i++ {
 		run, err := e.run(ctx, "Punkt odniesienia", 0, 0)
